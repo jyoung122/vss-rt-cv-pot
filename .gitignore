@@ -1,0 +1,6 @@
+data/videos/
+data/models/**/*.onnx
+data/models/**/*.engine
+data/models/**/*.pth
+data/models/**/*.etlt
+.env

@@ -12,7 +12,7 @@ height=1080
 [source0]
 enable=1
 type=4
-uri=rtsp://nvstreamer:31554/placeholder
+uri=STREAM_URI_PLACEHOLDER
 num-sources=1
 gpu-id=0
 cudadec-memtype=0

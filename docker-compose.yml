@@ -20,12 +20,25 @@ services:
     image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_TAG}
     container_name: vss-nvstreamer
     ports:
-      - "31000:31000"
-      - "31554:31554"
+      - "30000:30000"
+      - "30554-30580:30554-30580"
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: all
+      NVIDIA_VISIBLE_DEVICES: all
     volumes:
-      - ${DATA_DIR}/videos:/data/videos
+      - ${DATA_DIR}/videos:/home/vst/vst_release/streamer_videos
+      - ./nvstreamer/configs/adaptor_config.json:/home/vst/vst_release/configs/adaptor_config.json
     networks:
       - vss-net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids:
+                - '0'
+              capabilities:
+                - gpu
     restart: unless-stopped
 
   sdr:
@@ -34,7 +47,7 @@ services:
     ports:
       - "4001:4001"
     environment:
-      NVSTREAMER_URL: http://nvstreamer:31000
+      NVSTREAMER_URL: http://nvstreamer:30000
     depends_on:
       - nvstreamer
     networks:
@@ -49,8 +62,10 @@ services:
       NUM_SENSORS: ${NUM_SENSORS}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      STREAM_URI: ${STREAM_URI:-rtsp://nvstreamer:30554/placeholder}
     volumes:
       - ${DATA_DIR}/models:/data/models
+      - ${DATA_DIR}/videos:/data/videos
       - ./deepstream/config:/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app
       - ./deepstream/init/ds-start.sh:/ds-start.sh
     entrypoint: /ds-start.sh
@@ -78,11 +93,13 @@ services:
     environment:
       HOST_IP: ${HOST_IP}
       SDR_URL: http://sdr:4001
+      NVSTREAMER_URL: http://nvstreamer:30000
       REDIS_HOST: redis
       REDIS_PORT: 6379
       DATA_DIR: /data
     volumes:
       - ${DATA_DIR}/videos:/data/videos
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - redis
       - sdr

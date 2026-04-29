@@ -1,11 +1,9 @@
 [property]
 gpu-id=0
 net-scale-factor=0.0039215697906911373
-# ETLT source model — NGC downloads to a versioned subdir; adjust path if NGC changes the layout
-model-file=/data/models/trafficcamnet_transformer/trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_transformer.etlt
-tlt-model-key=tlt_encode
-model-engine-file=/data/models/trafficcamnet_transformer/resnet50_trafficcamnet_transformer.etlt_b1_gpu0_fp16.engine
-labelfile-path=/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/rtdetr-960x544-labels.txt
+onnx-file=/data/models/trafficcamnet_transformer/resnet50_trafficcamnet_rtdetr.fp16.onnx
+model-engine-file=/data/models/trafficcamnet_transformer/resnet50_trafficcamnet_rtdetr.fp16.onnx_b1_gpu0_fp16.engine
+labelfile-path=/opt/nvidia/deepstream/deepstream-9.0/samples/configs/deepstream-app/rtdetr-960x544-labels.txt
 batch-size=1
 network-mode=2
 num-detected-classes=5
@@ -13,7 +11,7 @@ interval=0
 gie-unique-id=1
 output-blob-names=pred_logits;pred_boxes
 parse-bbox-func-name=NvDsInferParseCustomDDETR
-custom-lib-path=/opt/nvidia/deepstream/deepstream/lib/libnvdsinfer_custom_impl_Transformer.so
+custom-lib-path=/opt/nvidia/deepstream/deepstream-9.0/lib/libnvdsinfer_custom_impl_Transformer.so
 network-type=100
 maintain-aspect-ratio=0
 infer-dims=3;544;960
