@@ -41,8 +41,8 @@ export default function UploadButton({ onUpload }: UploadButtonProps) {
 
       const data = await response.json()
       onUpload({
-        videoId: data.videoId,
-        playbackUrl: data.playbackUrl,
+        videoId: data.video_id,
+        playbackUrl: data.playback_url,
       })
 
       // Reset input

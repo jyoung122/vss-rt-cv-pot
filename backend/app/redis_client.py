@@ -15,6 +15,11 @@ async def stream_events(redis_url: str):
                         for stream, msg_list in messages:
                             for msg_id, msg_data in msg_list:
                                 last_id = msg_id
+                                # DeepStream MDX broker may serialize payload as a JSON string in a "msg" field.
+                                # Log the raw shape on first message so the schema can be confirmed on Brev.
+                                if last_id and not getattr(stream_events, "_schema_logged", False):
+                                    print(f"[redis_client] first mdx-raw message keys: {list(msg_data.keys())}")
+                                    stream_events._schema_logged = True  # type: ignore[attr-defined]
                                 yield msg_data
         except Exception as e:
             print(f"Redis stream error: {e}")

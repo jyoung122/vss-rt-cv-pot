@@ -15,6 +15,10 @@ MODEL_DIR=/data/models/trafficcamnet_transformer
 ENGINE=${MODEL_DIR}/resnet50_trafficcamnet_transformer.etlt_b1_gpu0_fp16.engine
 
 if [ ! -f "$ENGINE" ]; then
+  if ! command -v ngc &>/dev/null; then
+    echo "[ds-start] ERROR: ngc CLI not found in container. Mount the model manually to $MODEL_DIR and retry."
+    exit 1
+  fi
   echo "[ds-start] Downloading TrafficCamNet model from NGC..."
   mkdir -p "$MODEL_DIR"
   ngc registry model download-version \

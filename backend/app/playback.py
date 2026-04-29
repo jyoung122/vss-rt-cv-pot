@@ -23,4 +23,5 @@ async def get_video(video_id: str):
     if not video_path:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    return FileResponse(path=video_path, media_type="video/mp4")
+    media_type = "video/x-matroska" if video_path.suffix == ".mkv" else "video/mp4"
+    return FileResponse(path=video_path, media_type=media_type)

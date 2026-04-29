@@ -26,13 +26,15 @@ async def upload_video(file: UploadFile):
     video_dir.mkdir(parents=True, exist_ok=True)
 
     file_path = video_dir / file.filename
-    content = await file.read()
-
-    if not content:
-        raise HTTPException(status_code=400, detail="File is empty")
-
+    written = 0
     with open(file_path, "wb") as f:
-        f.write(content)
+        while chunk := await file.read(1024 * 1024):
+            f.write(chunk)
+            written += len(chunk)
+
+    if written == 0:
+        file_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="File is empty")
 
     video_id = Path(file.filename).stem
     rtsp_url = f"rtsp://{HOST_IP}:31554/{file.filename}"
