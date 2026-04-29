@@ -1,0 +1,124 @@
+# VSS RT CV PoT Docker Compose Configuration
+#
+# HOST_IP Configuration:
+# Docker Compose does not support shell command substitution.
+# If HOST_IP is not set in .env, determine your machine's IP with:
+#   ip route get 1.1.1.1 | awk '{print $7; exit}'
+# Then add it to your .env file before running docker-compose up
+
+version: '3.8'
+
+services:
+  redis:
+    image: redis:8.2.2-alpine
+    container_name: vss-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - vss-net
+    restart: unless-stopped
+
+  nvstreamer:
+    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_TAG}
+    container_name: vss-nvstreamer
+    ports:
+      - "31000:31000"
+      - "31554:31554"
+    volumes:
+      - ${DATA_DIR}/videos:/data/videos
+    networks:
+      - vss-net
+    restart: unless-stopped
+
+  sdr:
+    image: nvcr.io/nvidia/vss-core/sdr:${SDR_TAG}
+    container_name: vss-sdr
+    ports:
+      - "4001:4001"
+    environment:
+      NVSTREAMER_URL: http://nvstreamer:31000
+    depends_on:
+      - nvstreamer
+    networks:
+      - vss-net
+    restart: unless-stopped
+
+  vss-rt-cv:
+    image: nvcr.io/nvidia/vss-core/vss-rt-cv:${PERCEPTION_TAG}
+    container_name: vss-rt-cv
+    environment:
+      HOST_IP: ${HOST_IP}
+      NUM_SENSORS: ${NUM_SENSORS}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    volumes:
+      - ${DATA_DIR}/models:/data/models
+      - ./deepstream/config:/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app
+      - ./deepstream/init/ds-start.sh:/ds-start.sh
+    entrypoint: /ds-start.sh
+    depends_on:
+      - redis
+      - sdr
+    networks:
+      - vss-net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids:
+                - '0'
+              capabilities:
+                - gpu
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: vss-backend
+    ports:
+      - "8080:8080"
+    environment:
+      HOST_IP: ${HOST_IP}
+      SDR_URL: http://sdr:4001
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DATA_DIR: /data
+    volumes:
+      - ${DATA_DIR}/videos:/data/videos
+    depends_on:
+      - redis
+      - sdr
+    networks:
+      - vss-net
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: vss-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://${HOST_IP}:8080
+      NEXT_PUBLIC_WS_URL: ws://${HOST_IP}:8080
+    depends_on:
+      - backend
+    networks:
+      - vss-net
+    restart: unless-stopped
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: vss-redis-commander
+    ports:
+      - "8081:8081"
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    depends_on:
+      - redis
+    networks:
+      - vss-net
+    restart: unless-stopped
+
+networks:
+  vss-net:
+    driver: bridge
