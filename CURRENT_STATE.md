@@ -4,6 +4,12 @@ Snapshot of what is actually running on `feat/aims-rebrand` after the "POT-becom
 
 ---
 
+## End-to-end validation
+
+**2026-04-30 — pipeline ran end-to-end on a fresh Brev VM (A6000 48 GB, driver 580).** Uploaded `115_and_HVP.mp4` (1280×720, 15 fps, 148.8 s) via `POST /api/upload`. DeepStream → Redis `mdx-raw` → indexer → Postgres `events` flowed cleanly: 16,526 detections across 70 tracks, all four classes (car 10,891 / road_sign 2,386 / person 2,204 / bicycle 1,045), `max(t_seconds)=148.67` matching clip duration. `GET /api/uploads` and `GET /api/uploads/:id/events?group=tracks` returned correct shape. Cold-deploy gotchas (model dir perms, NGC ONNX pre-stage, frontend `.dockerignore`, postgres startup race, SDR DNS flake) catalogued in [`docs/gotchas.md`](./docs/gotchas.md).
+
+---
+
 ## What's running
 
 Two compose stacks, both stable:
