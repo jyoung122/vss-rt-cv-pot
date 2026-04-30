@@ -1,96 +1,90 @@
-# VSS-RT-CV POT — Current State
+# SSI AIMS — Current State
 
-## What's Working
-- All 7 containers up and stable
-- DeepStream perception pipeline runs end-to-end at the source video's native rate (~15 FPS) thanks to `sync=1` on the sinks
-- TrafficCamNet RT-DETR model loaded; TRT FP16 engine builds in ~3.5 min and persists between restarts (~5 s warm start after the first build)
-- IOU tracker assigns persistent IDs across frames
-- `metropolis_perception_app` (NVIDIA's reference VSS app) emits `NvDsEventMsgMeta` → `nvmsgconv` → Redis Stream `mdx-raw` at ~7-8 events/sec (`-r 2` → publish every 2 frames)
-- Backend `XREAD`s the stream and forwards each event to all WebSocket clients on `/ws/events`
-- Frontend renders detections in two places: an event feed (text list) and bounding-box canvas overlay over the playing video
-- All four object classes detected: car / bicycle / person / road_sign — high confidence on cars (0.9+)
+Snapshot of what is actually running on `feat/aims-rebrand` after the "POT-becomes-app" pivot. For the roadmap and burn list see [`../V1_PLAN.md`](../V1_PLAN.md). For onboarding see [`README.md`](./README.md). For DeepStream-only reference material from the POT era see [`FUTURE_STATE_POT_ARCHIVED.md`](./FUTURE_STATE_POT_ARCHIVED.md).
 
-## End-to-end pipeline
-```
-metropolis_perception_app (in vss-rt-cv)
-  ├── source0 (type=3, uri=file:///data/videos/<file>, sync=1)
-  ├── primary-gie  (RT-DETR ONNX → DDETR-TAO parser → NvDsObjectMeta)
-  ├── tracker      (IOU, persistent IDs)
-  ├── osd          (draws bboxes — used for visual verification)
-  ├── sink0        (FakeSink, sync=1 → paces pipeline to video FPS)
-  └── sink1 (type=6 msg-broker)
-        nvmsgconv  (config = dstest5_msgconv_sample_config.txt)
-        nvmsgbroker (libnvds_redis_proto.so → XADD mdx-raw)
-                                ↓
-                       Redis Stream mdx-raw
-                                ↓
-                  backend XREAD (redis_client.py)
-                                ↓
-                  WebSocket /ws/events  (events.py)
-                                ↓
-                  Frontend (event-feed + bbox-overlay)
-```
+---
 
-Sample event payload:
-```json
-{
-  "metadata": "{\"version\":\"4.0\",\"id\":\"5910\",\"@timestamp\":\"...\",\"sensorId\":\"0\",\"objects\":[\"177|925.0|264.6|993.6|299.9|bicycle|#|||||||0.66\",\"143|855.7|285.0|1023.0|359.0|car|#|||||||0.96\"]}"
-}
-```
-Each object string: `track_id | x1 | y1 | x2 | y2 | class | # | ... | confidence` (coords in source video pixels — 1280×720 for the demo file).
+## What's running
+
+Two compose stacks, both stable:
+
+- **`docker-compose.yml` — prod.** Eight services: `redis`, `postgres` (aims-postgres), `nvstreamer`, `sdr`, `vss-rt-cv` (DeepStream + GPU), `backend`, `frontend`, `redis-commander`. NVStreamer is up but not in the perception path (see "Known issues"). Phase 3 will drop redis-commander and add healthchecks.
+- **`docker-compose.dev.yml` — dev (no GPU).** Three services: `redis`, `postgres`, `backend`. No NGC pull. Mounts `./tools` read-only at `/app/tools` so the synthetic publisher runs inside the container.
+
+The DeepStream side is unchanged from the POT — `metropolis_perception_app -m 7 -r 2` runs RT-DETR (TrafficCamNet) → IOU tracker → `nvmsgconv` → `nvmsgbroker` (`libnvds_redis_proto.so`) → `XADD mdx-raw`. Source pacing comes from `sync=1` on the sinks; ~7–8 events/sec at the source's native FPS. All four classes detected (car / bicycle / person / road_sign).
+
+---
+
+## Backend
+
+**Stack:** FastAPI on Python 3.11-slim, `uvicorn` with `--limit-concurrency 10`, `asyncpg` pool, `redis[hiredis]>=5`, `aiofiles`, `python-multipart`. `ffmpeg` (for `ffprobe`) is installed in the image so the upload handler can read duration / resolution / fps.
+
+**Persistence (Postgres 16-alpine).** `backend/app/db.py` initialises the asyncpg pool at FastAPI lifespan start and runs `backend/app/schema.sql`. Two tables:
+
+- `uploads` — `video_id` PK (per-run `{stem}-{timestamp}` so re-uploads append a new row), `original_filename`, `prompt`, `duration_s`, `width`, `height`, `fps`, `size_bytes`, `uploaded_at`.
+- `events` — `id BIGSERIAL` PK, `video_id` FK with `ON DELETE CASCADE`, `track_id`, `frame_id`, `t_seconds`, `class`, `confidence`, `bbox_x1..y2`. Indexes on `(video_id, frame_id)` and `(video_id, track_id)`.
+
+**Event indexer (`backend/app/event_indexer.py`).** Background asyncio task spawned at lifespan start. Uses Redis `XREADGROUP` (group `indexer`, consumer `indexer-1`, MKSTREAM), parses the pipe-delimited objects out of each `metadata` JSON envelope, looks up `current_video_id` from Redis to associate the frame with an upload, looks up `fps` from the `uploads` row (cached per-process) to compute `t_seconds = frame_id / fps`, and `executemany`s the rows. Poison-pill safe: ack on success or on parse error, retry the outer loop on connection errors.
+
+**Endpoints.** `POST /api/uploads` (multipart; saves file, ffprobes, inserts uploads row, sets `current_video_id`, restarts vss-rt-cv via Docker socket). `GET /api/uploads` (list with `event_count` / `track_count` join). `GET /api/uploads/:id`. `DELETE /api/uploads/:id` (cascade drops events). `GET /api/uploads/:id/events?group=tracks|none` (track-summary or raw rows). `GET /api/uploads/:id/playback` (FileResponse off disk, content-type from extension stored on the row). `WS /ws/events` (live broadcast of mdx-raw entries for the dashboard overlay).
+
+**Vocabulary:** *event* = raw detection (class + conf + bbox + frame). *Scenario* = semantic interpretation of events over time (out of scope; v1.5).
+
+---
 
 ## Frontend
-- **Same-origin proxy via Next.js** so the whole app works behind one Brev/Cloudflare hostname (no CORS, single auth):
-  - `next.config.js` rewrites `/api/:path*` and `/ws/:path*` → `http://backend:8080`
-  - `src/app/api/upload/route.ts` is a streaming Route Handler that forwards multipart to backend (rewrites alone mangle multipart body parsing — Starlette returns "There was an error parsing the body")
-  - `src/app/page.tsx` derives `wsUrl` from `window.location` so `wss://` works automatically over HTTPS
-- **Bbox overlay** (`src/components/bbox-overlay.tsx`): absolute-positioned `<canvas>` over the `<video>`. Subscribes to `/ws/events`, draws colored boxes (car=blue, person=green, bicycle=amber, road_sign=pink) at the latest frame's coordinates. Canvas's intrinsic resolution is fixed at 1280×720 and CSS-scaled to the displayed video size, so coords land correctly regardless of viewport.
-- **Event feed** (`src/components/event-feed.tsx`): scrollable text list capped at 70vh / min 300px; auto-scrolls to top **only when already near the top** (so manual inspection of older events isn't yanked back).
-- **Stream cleared on each upload** (`backend/app/upload.py` calls `clear_stream` before restarting vss-rt-cv) so the feed/overlay start fresh.
 
-## Discovery bug — NVStreamer 3.1.0 (upstream, unresolved)
-NVStreamer 3.1.0 does not populate codec/container metadata for files it serves. `updateFileMetadata` consistently logs `Container: , videoCodec:` (both empty), `create_video_pipeline` rejects with "Codec format not supported", and the documented `POST /api/v1/file` upload API returns 404 in this build. Tested mp4 ✓, h264 ✓, with/without audio, baseline profile, +faststart — all hit the same failure.
+**Stack:** Next.js 15.3 App Router, React 19, TypeScript, Tailwind v4 (CSS-based config via `@theme inline`), `radix-ui` umbrella, shadcn-style components (vendored under `src/components/ui/`), `lucide-react` icons. Fonts via `next/font/google`: Inter (body), Space Grotesk (display), JetBrains Mono.
 
-**Workaround in place:** `/api/upload` writes `file:///data/videos/<filename>` directly to `current_stream_url.txt` and DeepStream reads via `uridecodebin`. NVStreamer is not in the perception path. The container is still up but unused for streaming.
+**Pages.**
 
-## Fixes landed this session
-**DeepStream**
-- `deepstream/config/rtdetr-960x544.txt` — canonical NVIDIA config from NGC `nvdsinfer_config.yaml`: parser `NvDsInferParseCustomDDETRTAO` from `libnvds_infercustomparser_tao.so`, `network-type=0`, `cluster-mode=4`, `output-tensor-meta=1`, `maintain-aspect-ratio=1`, `topk=20`, `pre-cluster-threshold=0.5`. Original config referenced a library that doesn't exist in this image.
-- `deepstream/config/perception-config.txt` — source `type=3` (file URI), tracker enabled, sink0 type=1 with `sync=1` (FakeSink that paces pipeline to video FPS), sink1 type=6 with `msg-conv-config=dstest5_msgconv_sample_config.txt`, `msg-conv-payload-type=1`, `msg-conv-frame-interval=2`. **Removed** the file-output sink — the unbounded mkv was filling disk.
-- `deepstream/init/ds-start.sh` — entrypoint switched from `deepstream-app` to `metropolis_perception_app -m 7 -r 2`. `deepstream-app` won't generate `NvDsEventMsgMeta`; `metropolis_perception_app` does. Also stages `config_tracker_IOU.yml` and `dstest5_msgconv_sample_config.txt`.
-- `deepstream/config/config_tracker_IOU.yml`, `deepstream/config/dstest5_msgconv_sample_config.txt` — copied from the in-image samples dir.
+- `/uploads` — drag-drop uploader, prompt textarea, history table, suggestion chips, 4-stage progress strip. Click a row → detail page.
+- `/uploads/[video_id]` — two-column layout. Left: HTML5 `<video>`, custom scrubber overlay with per-track detection bands (class-coloured), prev/next track controls, single-line prompt recap pill. Right: tabbed Detected Events panel — Events tab lists tracks (class, max confidence, duration, first bbox) and click-seeks; Scenarios tab is disabled and labelled deferred to v1.5.
+- `/` (dashboard), `/events`, `/settings` — placeholder routes; dashboard palette pass is next on the burn list.
 
-**Backend**
-- `backend/Dockerfile` — installs `curl` (upload flow shells out to `curl --unix-socket` for Docker API).
-- `backend/app/upload.py` — returns `playback_url: /api/video/{video_id}`; bypasses NVStreamer (writes `file://` URL directly to `current_stream_url.txt`); calls `clear_stream(REDIS_URL)` to drop prior events.
+**Design system.** OpsVision tokens (Synch Solutions orange `#ea6a22` accent on a cool slate `--ink-*` scale) live in `globals.css` under `@theme inline`. shadcn slot bindings (`--background`, `--card`, `--popover`, etc.) are defined alongside so primitives pick up OpsVision colours automatically.
 
-**Frontend**
-- `frontend/next.config.js` — rewrites for `/api/*` and `/ws/*` to backend.
-- `frontend/src/app/api/upload/route.ts` — streaming multipart proxy (fixes "There was an error parsing the body" via plain rewrite).
-- `frontend/src/app/page.tsx` — derives wsUrl from window.location; passes wsUrl/resetKey to VideoPlayer.
-- `frontend/src/components/upload-button.tsx` — relative URLs (`apiUrl=''`).
-- `frontend/src/components/event-feed.tsx` — parses `metadata` JSON-string and pipe-delimited objects; scrollable; smarter auto-scroll.
-- `frontend/src/components/bbox-overlay.tsx` — new canvas overlay.
-- `frontend/src/components/video-player.tsx` — wraps video + overlay.
-- `docker-compose.yml` — removed `NEXT_PUBLIC_API_URL` / `NEXT_PUBLIC_WS_URL` build args (frontend is now origin-agnostic).
+**Theme toggle.** `src/components/theme-provider.tsx` reads/writes `aims-theme` in `localStorage` and toggles `dark` / `light` on `<html>`. `src/components/theme-toggle.tsx` is the Sun/Moon button in the header (top-right). A pre-hydration script in `src/app/layout.tsx` sets the class before paint to avoid FOUC, and `<html suppressHydrationWarning>` silences the SSR/CSR diff. Light tokens are aligned to the canonical OpsVision spec (`--surface-1: #ffffff`, `--bg: #f3f5f9`, soft borders) so the sidebar comes out white in light mode without a special case.
 
-**Host / infra**
-- Removed `/etc/systemd/system/docker.service.d/http-proxy.conf` (Brev artifact pointing docker daemon at a non-existent `shadeform/` proxy).
-- `chmod 777 data/models/trafficcamnet_transformer/` so the container's `triton-server` UID can persist the TRT engine file.
-- Disk cleanup: `journalctl --vacuum-size=200M` (-3.1 GB), `docker image prune -a` (-119 MB), removed `/tmp/perception-out*.{mp4,mkv}` artifacts. Note: 71 GB on `/var/lib/containerd` is Brev's own runtime, not ours.
+**shadcn-only directive.** All UI is built from the vendored shadcn primitives (`Button`, `Dialog`, `Badge`, `Card`, `Tabs`, `Tooltip`, `Skeleton`, `Sidebar`, etc.). One narrow exception: the scrubber DOM on the detail page is bespoke — Card padding/radius would break the row grid.
 
-## NGC notes
-- The `ngc` CLI's signed-URL download handler 403s on the redirect to `xfiles.ngc.nvidia.com`. Worked around by hitting the REST API directly with a bearer token: `curl -L -H "Authorization: Bearer $NGC_CLI_API_KEY" https://api.ngc.nvidia.com/v2/.../files/<name>`.
-- API key in `.env` as `NGC_CLI_API_KEY`; org `nvidia`; model `nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0`.
+**Layout shell.** `SidebarProvider` is `h-svh` (was `min-h-svh`), `SidebarInset` is `min-h-0 overflow-hidden`, the children wrapper has `min-h-0`. This caps page-level scroll to the viewport so the per-column flex chains in the detail page (events list overflow-auto inside the right column) actually contain, instead of pushing the whole page.
 
-## Public access (Brev)
-Use `https://ui-blxuttpxb.brevlab.com` (or `https://3000-blxuttpxb.brevlab.com` — same backend). Cloudflare Access auth happens once, then upload + playback + WebSocket all flow through the same hostname via the Next.js proxy.
+**Same-origin proxy.** `frontend/next.config.js` rewrites `/api/*` and `/ws/*` to `BACKEND_URL` (env, defaults to `http://backend:8080` for the compose network). `frontend/.env.local.example` documents the override for local `npm run dev`. `src/app/api/upload/route.ts` is a streaming multipart Route Handler — plain rewrites mangle multipart parsing.
 
-## Known repo hygiene
-- `smoke-test.ipynb` reads `NGC_CLI_API_KEY` from env (older note about a hardcoded key is stale).
-- `nvstreamer` service is still in compose but not used; could be removed once NVStreamer 3.1.0 discovery is fixed upstream or the team accepts file:// permanently.
+---
 
-## Next Steps
-1. Decide on NVStreamer: pin a 3.0.0 image (where the documented dashboard upload works), wait for 3.2.0, or accept the `file://` bypass as the long-term path.
-2. If multi-stream / multi-camera demos are planned, the current single-source/single-sensor wiring needs a multi-uri source list and per-source sensor-id mapping in `dstest5_msgconv_sample_config.txt`.
-3. Tunable demo knobs: `pre-cluster-threshold` (0.5 default), `-r N` message-rate, IOU tracker swap to NvDCF for better re-id.
+## Dev tooling
+
+`tools/synthetic_mdx_publisher.py` is an async script (`redis.asyncio` + `asyncpg` — both already in the backend image) that XADDs realistic detection frames into `mdx-raw` and sets `current_video_id` so the indexer routes them. Multi-track lifecycle (Car / Person / Bicycle, motion drift, spawn/despawn), 13-part DeepStream object format. `--ensure-upload` stubs an `uploads` row in Postgres so the detail page is reachable without going through the UI uploader. Runs inside the dev backend:
+
+```bash
+docker compose -f docker-compose.dev.yml exec backend \
+  python /app/tools/synthetic_mdx_publisher.py \
+  --video-id synth-1 --ensure-upload --duration 20 --rate 200
+```
+
+---
+
+## Known issues
+
+- **NVStreamer 3.1.0 discovery bug (upstream, unresolved).** Files served by NVStreamer 3.1.0 lose codec/container metadata; `create_video_pipeline` rejects them; `POST /api/v1/file` returns 404. Workaround in place: `/api/uploads` writes `file:///data/videos/<filename>` directly to `current_stream_url.txt` and DeepStream reads via `uridecodebin`. NVStreamer is still up but unused — could be removed once 3.2.0 lands or the team accepts `file://` permanently.
+- **`libnvds_redis_proto.so` presence is image-dependent.** The vss-rt-cv image ships Kafka as default; verify the Redis proto library is in `/opt/nvidia/deepstream/deepstream/lib/`. Comments in `deepstream/init/ds-start.sh` cover fallbacks (Kafka sidecar, file sink).
+- **TRT engine cold compile is ~3.5 min.** Persists in `data/models/` so it's a one-time cost per host. Phase 3 will pin the cache to a named volume so container rebuilds don't lose it.
+- **Public access (Brev).** `https://ui-blxuttpxb.brevlab.com` (or `https://3000-blxuttpxb.brevlab.com` — same backend). Cloudflare Access auth one-shot; upload + playback + WS all flow through the same hostname via the Next.js proxy.
+- **NGC notes.** The `ngc` CLI's signed-URL handler 403s on the redirect to `xfiles.ngc.nvidia.com`; bearer-token REST works (`curl -L -H "Authorization: Bearer $NGC_CLI_API_KEY" https://api.ngc.nvidia.com/v2/.../files/<name>`). Org `nvidia`, model `nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0`.
+- **Repo hygiene.** `smoke-test.ipynb` reads `NGC_CLI_API_KEY` from env (older note about a hardcoded key is stale).
+
+---
+
+## Next steps
+
+See [`../V1_PLAN.md`](../V1_PLAN.md) for the burn list. Phases 1 (rebrand) and 2 (Uploads UI + detail page + Postgres + event indexer) are landed. Burn list item #1 (synthetic publisher) is landed. Up next, in priority order:
+
+1. Dashboard (`/`) OpsVision palette pass.
+2. Phase 3 backend hardening: `file-loop=0` in `deepstream/config/perception-config.txt`, healthchecks across services, TRT engine cache as a named volume, drop `redis-commander`, refresh `.env.example`.
+3. Phase 4 repo rename: `git mv vss-rt-cv-pot aims`.
+4. Phase 5 deploy runbook (`aims/docs/deploy.md`) + cold deploy on a fresh Brev VM.
+5. Phase 6 demo acceptance.
+
+Branch: `feat/aims-rebrand`. Two commits ahead of origin (push pending auth setup): `a5fc5fe` (synthetic publisher) and `5d3a742` (viewport-bounded layout + theme toggle).
