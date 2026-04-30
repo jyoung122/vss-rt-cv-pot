@@ -45,3 +45,15 @@ CREATE TABLE IF NOT EXISTS incidents (
 
 CREATE INDEX IF NOT EXISTS incidents_video_t ON incidents (video_id, t_start_s);
 CREATE UNIQUE INDEX IF NOT EXISTS incidents_dedup ON incidents (video_id, rule_id, t_start_s, track_ids);
+
+-- Phase 8: VLM validation columns (added via ALTER so existing rows get defaults)
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS vlm_status     TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS vlm_verdict    TEXT;
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS vlm_reasoning  TEXT;
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS vlm_confidence REAL;
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS vlm_model      TEXT;
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS vlm_clip_path  TEXT;
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS vlm_latency_ms INTEGER;
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS vlm_at         TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS incidents_vlm_pending ON incidents (video_id) WHERE vlm_status = 'pending';

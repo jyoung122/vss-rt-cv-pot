@@ -18,6 +18,7 @@ import {
 
 import {
   type UploadRecord,
+  type Incident,
   formatDuration,
   formatUploaded,
 } from '@/lib/uploads'
@@ -87,6 +88,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [incidentCount, setIncidentCount] = useState<number | null>(null)
+  const [vlmConfirmedCount, setVlmConfirmedCount] = useState<number | null>(null)
   const [incidentsLoading, setIncidentsLoading] = useState(true)
 
   useEffect(() => {
@@ -121,6 +123,7 @@ export default function DashboardPage() {
     if (loading) return
     if (uploads.length === 0) {
       setIncidentCount(0)
+      setVlmConfirmedCount(0)
       setIncidentsLoading(false)
       return
     }
@@ -133,12 +136,16 @@ export default function DashboardPage() {
           uploads.map((u) =>
             fetch(`/api/uploads/${u.video_id}/incidents`, { cache: 'no-store' })
               .then((r) => (r.ok ? r.json() : { incidents: [] }))
-              .then((d: { incidents?: unknown[] }) => (d.incidents ?? []).length)
-              .catch(() => 0),
+              .then((d: { incidents?: Incident[] }) => d.incidents ?? [])
+              .catch(() => [] as Incident[]),
           ),
         )
         if (!cancelled) {
-          setIncidentCount(results.reduce((sum, n) => sum + n, 0))
+          const all = results.flat()
+          setIncidentCount(all.length)
+          setVlmConfirmedCount(
+            all.filter(i => i.vlm_status === 'done' && i.vlm_verdict === 'confirmed').length
+          )
         }
       } finally {
         if (!cancelled) setIncidentsLoading(false)
@@ -258,7 +265,7 @@ export default function DashboardPage() {
             </Card>
           )}
 
-          <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
             <KpiCard
               label="Events indexed"
               value={loading ? null : stats.eventCount.toLocaleString()}
@@ -276,13 +283,22 @@ export default function DashboardPage() {
               source="Uploads API"
             />
             <KpiCard
-              label="Incidents flagged"
+              label="Rule-detected"
               value={incidentsLoading ? null : (incidentCount ?? '—').toString()}
-              delta="rule-detected"
+              delta="incidents"
               trend={KPI_TRENDS.falsePositive}
               tone="warn"
               source="Uploads API"
               icon={<AlertTriangle className="size-3.5" strokeWidth={1.75} />}
+            />
+            <KpiCard
+              label="VLM-confirmed"
+              value={incidentsLoading ? null : (vlmConfirmedCount ?? '—').toString()}
+              delta="by Cosmos-Reason2"
+              trend={KPI_TRENDS.falsePositive}
+              tone="ok"
+              source="Uploads API"
+              icon={<ShieldCheck className="size-3.5" strokeWidth={1.75} />}
             />
             <KpiCard
               label="Avg. response time"

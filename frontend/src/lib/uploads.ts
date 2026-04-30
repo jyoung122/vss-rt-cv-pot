@@ -2,6 +2,8 @@
 
 export type RuleId = 'vehicle_collision' | 'ped_impact' | 'stationary_vehicle' | 'mass_stop'
 export type Severity = 'high' | 'medium' | 'low'
+export type VlmStatus = 'pending' | 'done' | 'error' | 'skipped'
+export type VlmVerdict = 'confirmed' | 'rejected' | 'uncertain' | null
 
 export type Incident = {
   id: string
@@ -17,6 +19,15 @@ export type Incident = {
   bbox_union: { x: number; y: number; w: number; h: number }
   metadata: Record<string, unknown>
   created_at: string
+  // Phase 8 VLM fields
+  vlm_status: VlmStatus
+  vlm_verdict: VlmVerdict
+  vlm_reasoning: string | null
+  vlm_confidence: number | null
+  vlm_model: string | null
+  vlm_clip_path: string | null
+  vlm_latency_ms: number | null
+  vlm_at: string | null
 }
 
 export type UploadRecord = {

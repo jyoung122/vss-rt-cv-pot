@@ -1,14 +1,18 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import {
   AlertTriangle,
+  Brain,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Download,
+  HelpCircle,
   Pause,
   Play,
   Plus,
@@ -26,6 +30,8 @@ import {
   type Incident,
   type RuleId,
   type Severity,
+  type VlmStatus,
+  type VlmVerdict,
   formatBytes,
 } from '@/lib/uploads'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -925,6 +931,8 @@ function EventsPanel({
   )
 }
 
+type VlmFilter = 'all' | 'confirmed' | 'rejected' | 'pending'
+
 function ScenariosPanel({
   incidents,
   loading,
@@ -936,6 +944,15 @@ function ScenariosPanel({
   onSeek: (s: number) => void
   onSelectTrack: (trackId: number) => void
 }) {
+  const [filter, setFilter] = useState<VlmFilter>('all')
+
+  const filtered = useMemo(() => {
+    if (filter === 'confirmed') return incidents.filter(i => i.vlm_status === 'done' && i.vlm_verdict === 'confirmed')
+    if (filter === 'rejected')  return incidents.filter(i => i.vlm_status === 'done' && i.vlm_verdict === 'rejected')
+    if (filter === 'pending')   return incidents.filter(i => i.vlm_status === 'pending')
+    return incidents
+  }, [incidents, filter])
+
   if (loading) {
     return (
       <div className="flex flex-1 flex-col gap-3 overflow-auto p-4">
@@ -964,10 +981,43 @@ function ScenariosPanel({
     )
   }
 
+  const filterOpts: { id: VlmFilter; label: string }[] = [
+    { id: 'all', label: `All (${incidents.length})` },
+    { id: 'confirmed', label: `Confirmed (${incidents.filter(i => i.vlm_status === 'done' && i.vlm_verdict === 'confirmed').length})` },
+    { id: 'rejected', label: `Rejected (${incidents.filter(i => i.vlm_status === 'done' && i.vlm_verdict === 'rejected').length})` },
+    { id: 'pending', label: `Pending (${incidents.filter(i => i.vlm_status === 'pending').length})` },
+  ]
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {/* VLM filter chips */}
+      <div className="shrink-0 flex flex-wrap gap-1.5 px-3 pt-2.5 pb-2 border-b">
+        {filterOpts.map(({ id, label }) => (
+          <button
+            key={id}
+            onClick={() => setFilter(id)}
+            className="rounded-[3px] px-2 py-0.5 text-[11px] font-medium transition-colors"
+            style={{
+              background: filter === id
+                ? 'color-mix(in srgb, var(--accent-500) 20%, transparent)'
+                : 'var(--surface-2)',
+              color: filter === id ? 'var(--accent-400)' : 'var(--fg-3)',
+              border: filter === id
+                ? '1px solid color-mix(in srgb, var(--accent-500) 40%, transparent)'
+                : '1px solid var(--border)',
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="flex-1 overflow-auto p-3 space-y-2">
-        {incidents.map((inc) => (
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 text-center">
+            <div className="text-[12px]" style={{ color: 'var(--fg-4)' }}>No incidents match this filter.</div>
+          </div>
+        ) : filtered.map((inc) => (
           <IncidentCard
             key={inc.id}
             incident={inc}
@@ -981,9 +1031,49 @@ function ScenariosPanel({
         style={{ background: 'var(--surface-2)', color: 'var(--fg-4)' }}
       >
         <Shield className="size-3 shrink-0" strokeWidth={1.75} />
-        Rule-based incident detection · Phase A
+        Rule-based detection · Cosmos-Reason2-2B validation
       </div>
     </div>
+  )
+}
+
+// ─── VLM helpers ─────────────────────────────────────────────────────────────
+
+function VlmPill({ status, verdict }: { status: VlmStatus; verdict: VlmVerdict }) {
+  if (status === 'skipped') return null
+
+  if (status === 'pending') return (
+    <Badge variant="outline" className="gap-1 text-[10px] text-muted-foreground">
+      <Clock className="size-2.5" strokeWidth={1.75} />
+      VLM pending
+    </Badge>
+  )
+
+  if (status === 'error') return (
+    <Badge variant="outline" className="gap-1 text-[10px] border-destructive/40 bg-destructive/10 text-destructive">
+      VLM error
+    </Badge>
+  )
+
+  if (verdict === 'confirmed') return (
+    <Badge variant="outline" className="gap-1 text-[10px] border-[color:var(--ok-500)]/40 bg-[color:var(--ok-500)]/10 text-[color:var(--ok-300)]">
+      <Check className="size-2.5" strokeWidth={2.5} />
+      VLM confirmed
+    </Badge>
+  )
+
+  if (verdict === 'rejected') return (
+    <Badge variant="outline" className="gap-1 text-[10px] border-[color:var(--danger-500)]/40 bg-[color:var(--danger-500)]/10 text-[color:var(--danger-500)]">
+      <X className="size-2.5" strokeWidth={2.5} />
+      VLM rejected
+    </Badge>
+  )
+
+  return (
+    <Badge variant="outline" className="gap-1 text-[10px] border-[color:var(--warn-500)]/40 bg-[color:var(--warn-500)]/10 text-[color:var(--warn-500)]">
+      <HelpCircle className="size-2.5" strokeWidth={1.75} />
+      VLM uncertain
+    </Badge>
   )
 }
 
@@ -996,6 +1086,9 @@ function IncidentCard({
   onSeek: (s: number) => void
   onSelectTrack: (trackId: number) => void
 }) {
+  const [whyOpen, setWhyOpen] = useState(false)
+  const hasWhy = incident.vlm_status === 'done' && !!incident.vlm_reasoning
+
   return (
     <Card className="rounded-[3px]">
       <CardHeader className="pb-0">
@@ -1005,17 +1098,20 @@ function IncidentCard({
               <span className="text-[13px] font-semibold" style={{ color: 'var(--fg-1)' }}>
                 {RULE_LABELS[incident.rule_id]}
               </span>
-              <Badge
-                variant="outline"
-                className={severityBadgeClass(incident.severity)}
-              >
+              <Badge variant="outline" className={severityBadgeClass(incident.severity)}>
                 {incident.severity}
               </Badge>
+              <VlmPill status={incident.vlm_status} verdict={incident.vlm_verdict} />
             </div>
             <div className="font-mono text-[11px]" style={{ color: 'var(--fg-4)' }}>
               {fmtTimestamp(incident.t_start_s)} – {fmtTimestamp(incident.t_end_s)}
               {'  ·  '}
-              {(incident.confidence * 100).toFixed(1)}% confidence
+              {(incident.confidence * 100).toFixed(1)}% rule conf
+              {incident.vlm_confidence != null && (
+                <span style={{ color: 'var(--fg-3)' }}>
+                  {'  ·  '}{(incident.vlm_confidence * 100).toFixed(1)}% VLM conf
+                </span>
+              )}
             </div>
           </div>
           <Button
@@ -1029,12 +1125,10 @@ function IncidentCard({
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="pt-2">
+      <CardContent className="pt-2 space-y-2">
         {incident.track_ids.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px]" style={{ color: 'var(--fg-4)' }}>
-              Tracks:
-            </span>
+            <span className="text-[11px]" style={{ color: 'var(--fg-4)' }}>Tracks:</span>
             {incident.track_ids.map((id) => (
               <Tooltip key={id}>
                 <TooltipTrigger asChild>
@@ -1049,6 +1143,42 @@ function IncidentCard({
                 <TooltipContent>Switch to Events tab to inspect track {id}</TooltipContent>
               </Tooltip>
             ))}
+          </div>
+        )}
+
+        {/* VLM "Why" expandable */}
+        {hasWhy && (
+          <div>
+            <button
+              onClick={() => setWhyOpen(!whyOpen)}
+              className="flex items-center gap-1 text-[11px] transition-colors"
+              style={{ color: 'var(--fg-3)' }}
+            >
+              <Brain className="size-3" strokeWidth={1.75} />
+              Why?
+              <ChevronDown
+                className="size-3 transition-transform"
+                style={{ transform: whyOpen ? 'rotate(180deg)' : 'none' }}
+                strokeWidth={1.75}
+              />
+            </button>
+            {whyOpen && (
+              <div
+                className="mt-1.5 rounded-[3px] px-2.5 py-2 text-[11px] leading-relaxed"
+                style={{
+                  background: 'var(--surface-2)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--fg-2)',
+                }}
+              >
+                {incident.vlm_reasoning}
+                {incident.vlm_latency_ms != null && (
+                  <div className="mt-1 font-mono text-[10px]" style={{ color: 'var(--fg-4)' }}>
+                    {incident.vlm_model} · {incident.vlm_latency_ms}ms
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </CardContent>
