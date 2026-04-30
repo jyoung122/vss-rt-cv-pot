@@ -25,6 +25,22 @@ import {
   formatDurationSize,
   formatUploaded,
 } from '@/lib/uploads'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 const ACCEPT = '.mp4,.mkv'
 
@@ -239,7 +255,7 @@ export default function UploadsPage() {
             </div>
           </div>
 
-          {/* Dropzone + query */}
+          {/* design: not a Card — bespoke dropzone+query container with dashed accent border that fights Card's default styling */}
           <div
             className="grid grid-cols-1 gap-6 rounded-md p-6 lg:grid-cols-2"
             style={{
@@ -249,6 +265,9 @@ export default function UploadsPage() {
                 'color-mix(in srgb, var(--accent-500) 5%, var(--surface-1))',
             }}
           >
+            {/* design: not a Button primitive — this is the drag-and-drop zone with custom sizing and drag handlers.
+                It renders as a <button> for keyboard accessibility but carries drag* event handlers the
+                shadcn Button wrapper passes through, so it is an acceptable exception per spec. */}
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
@@ -283,6 +302,7 @@ export default function UploadsPage() {
                 MP4 or MKV · up to 500 MB · H.264 or H.265
               </div>
               <div className="mt-1 flex gap-2">
+                {/* Primary CTA inside dropzone */}
                 <span
                   className="inline-flex h-7 items-center gap-1.5 rounded-[3px] px-3 text-xs font-medium text-white"
                   style={{ background: 'var(--accent-500)' }}
@@ -290,14 +310,18 @@ export default function UploadsPage() {
                   <UploadIcon className="size-3.5" strokeWidth={2} />
                   Select file
                 </span>
-                <span
-                  className="inline-flex h-7 items-center gap-1.5 rounded-[3px] border px-3 text-xs font-medium text-muted-foreground"
-                  style={{ background: 'var(--surface-2)' }}
-                  title="Coming in v2"
-                >
-                  <Video className="size-3.5" strokeWidth={1.75} />
-                  Pull from camera archive
-                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      className="inline-flex h-7 items-center gap-1.5 rounded-[3px] border px-3 text-xs font-medium text-muted-foreground"
+                      style={{ background: 'var(--surface-2)' }}
+                    >
+                      <Video className="size-3.5" strokeWidth={1.75} />
+                      Pull from camera archive
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>Coming in v2</TooltipContent>
+                </Tooltip>
               </div>
             </button>
 
@@ -332,25 +356,26 @@ export default function UploadsPage() {
               />
               <div className="flex flex-wrap gap-1.5">
                 {SUGGESTIONS.map((s) => (
-                  <button
+                  <Button
                     key={s}
                     type="button"
+                    variant="outline"
+                    size="sm"
                     onClick={() =>
                       setQuery((q) =>
                         q.endsWith(s) ? q : `${q.replace(/\s+$/, '')} · ${s}`,
                       )
                     }
-                    className="h-6 cursor-pointer rounded-full border px-2 text-[11px] text-foreground/85 transition-colors hover:border-primary/50"
-                    style={{ background: 'var(--surface-2)' }}
+                    className="rounded-full h-6 text-[11px] px-2"
                   >
                     + {s}
-                  </button>
+                  </Button>
                 ))}
               </div>
               <div className="flex gap-3.5 text-[11px] text-muted-foreground">
                 <span className="inline-flex items-center gap-1">
                   <Shield className="size-3" strokeWidth={1.75} />
-                  Faces & plates auto-redacted on ingest
+                  Faces &amp; plates auto-redacted on ingest
                 </span>
                 <span className="inline-flex items-center gap-1">
                   <Clock className="size-3" strokeWidth={1.75} />
@@ -362,7 +387,7 @@ export default function UploadsPage() {
 
           {/* Active upload card */}
           {activeName && (
-            <div
+            <Card
               className="relative mt-5 overflow-hidden rounded-[3px] p-4"
               style={{
                 border:
@@ -434,7 +459,7 @@ export default function UploadsPage() {
                   </div>
                 </div>
               </div>
-            </div>
+            </Card>
           )}
 
           {/* Recent uploads */}
@@ -444,31 +469,42 @@ export default function UploadsPage() {
                 Recent uploads · {filtered.length}
               </div>
               <div className="flex-1" />
-              <button
+              <Button
                 type="button"
-                className="inline-flex h-7 items-center gap-1.5 rounded-[3px] px-2.5 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 text-muted-foreground"
               >
                 <Filter className="size-3.5" strokeWidth={1.75} />
                 Filter
-              </button>
+              </Button>
               <div
                 className="flex rounded-[3px] border p-0.5"
                 style={{ background: 'var(--surface-2)' }}
               >
-                <button
+                <Button
                   type="button"
-                  className="inline-flex h-[26px] items-center gap-1 rounded-[3px] px-2.5 text-[11px] text-foreground"
+                  variant="ghost"
+                  size="sm"
+                  className="h-[26px] gap-1 rounded-[3px] px-2.5 text-[11px] text-foreground"
                   style={{ background: 'var(--surface-3)' }}
                 >
                   <ListIcon className="size-3" strokeWidth={1.75} /> List
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex h-[26px] items-center gap-1 rounded-[3px] px-2.5 text-[11px] text-muted-foreground"
-                  title="Grid view — coming soon"
-                >
-                  <Grid3x3 className="size-3" strokeWidth={1.75} /> Grid
-                </button>
+                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-[26px] gap-1 rounded-[3px] px-2.5 text-[11px] text-muted-foreground"
+                      disabled
+                    >
+                      <Grid3x3 className="size-3" strokeWidth={1.75} /> Grid
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Grid view — coming soon</TooltipContent>
+                </Tooltip>
               </div>
             </div>
 
@@ -559,25 +595,22 @@ export default function UploadsPage() {
 
                   {/* Status */}
                   <div>
-                    <span
-                      className="inline-flex items-center gap-1 rounded-[3px] px-2 py-0.5 text-[11px] font-medium"
-                      style={{
-                        background:
-                          'color-mix(in srgb, var(--ok-500) 14%, transparent)',
-                        color: 'var(--ok-300)',
-                      }}
+                    <Badge
+                      variant="outline"
+                      className="gap-1 border-[color:var(--ok-500)]/40 bg-[color:var(--ok-500)]/10 text-[color:var(--ok-300)]"
                     >
                       <Check className="size-3" strokeWidth={2} />
                       analyzed
-                    </span>
+                    </Badge>
                   </div>
 
                   {/* Tracks */}
                   <div>
                     {u.track_count > 0 ? (
                       <div className="flex items-center gap-1.5">
-                        <span
-                          className="inline-flex h-6 min-w-[28px] items-center justify-center rounded-[3px] px-1.5 font-mono text-[11px] font-semibold"
+                        <Badge
+                          variant="secondary"
+                          className="font-mono h-6 min-w-[28px] justify-center px-1.5 text-[11px]"
                           style={{
                             background:
                               'color-mix(in srgb, var(--accent-500) 18%, transparent)',
@@ -585,7 +618,7 @@ export default function UploadsPage() {
                           }}
                         >
                           {u.track_count}
-                        </span>
+                        </Badge>
                         <span className="text-[11px] text-muted-foreground">
                           tracked
                         </span>
@@ -609,22 +642,36 @@ export default function UploadsPage() {
 
                   {/* Actions */}
                   <div className="flex justify-end gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewUrl(u.playback_url)}
-                      className="inline-flex size-7 items-center justify-center rounded-[3px] text-muted-foreground hover:bg-secondary hover:text-foreground"
-                      title="Quick preview"
-                    >
-                      <ArrowUpRight className="size-3.5" strokeWidth={1.75} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPendingDelete(u)}
-                      className="inline-flex size-7 items-center justify-center rounded-[3px] text-muted-foreground hover:bg-destructive/15 hover:text-[color:var(--danger-500)]"
-                      title="Delete"
-                    >
-                      <Trash2 className="size-3.5" strokeWidth={1.75} />
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setPreviewUrl(u.playback_url)}
+                          className="size-7 text-muted-foreground"
+                          aria-label="Quick preview"
+                        >
+                          <ArrowUpRight className="size-3.5" strokeWidth={1.75} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Quick preview</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setPendingDelete(u)}
+                          className="size-7 text-muted-foreground hover:bg-destructive/15 hover:text-[color:var(--danger-500)]"
+                          aria-label="Delete"
+                        >
+                          <Trash2 className="size-3.5" strokeWidth={1.75} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Delete</TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
               ))
@@ -650,78 +697,28 @@ export default function UploadsPage() {
       </div>
 
       {/* Preview modal */}
-      {previewUrl && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setPreviewUrl(null)}
-          className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-sm"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-4xl overflow-hidden rounded-md border"
-            style={{ background: 'var(--surface-1)' }}
-          >
-            <button
-              type="button"
-              onClick={() => setPreviewUrl(null)}
-              className="absolute right-2 top-2 z-10 inline-flex size-8 items-center justify-center rounded-[3px] bg-black/40 text-white hover:bg-black/60"
-              aria-label="Close"
-            >
-              <X className="size-4" />
-            </button>
-            <video
-              src={previewUrl}
-              controls
-              autoPlay
-              className="block w-full bg-black"
-            />
-          </div>
-        </div>
-      )}
+      <Dialog open={!!previewUrl} onOpenChange={(o) => { if (!o) setPreviewUrl(null) }}>
+        <DialogContent className="max-w-4xl p-0">
+          <video src={previewUrl ?? undefined} controls autoPlay className="w-full bg-black" />
+        </DialogContent>
+      </Dialog>
 
       {/* Delete confirm */}
-      {pendingDelete && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setPendingDelete(null)}
-          className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-sm"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-md border p-5"
-            style={{ background: 'var(--surface-1)' }}
-          >
-            <h2 className="font-display text-base font-semibold">
-              Delete this upload?
-            </h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              <span className="font-mono text-foreground">
-                {pendingDelete.original_filename}
-              </span>{' '}
+      <Dialog open={!!pendingDelete} onOpenChange={(o) => { if (!o) setPendingDelete(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this upload?</DialogTitle>
+            <DialogDescription>
+              <span className="font-mono text-foreground">{pendingDelete?.original_filename}</span>{' '}
               will be permanently removed from the server.
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setPendingDelete(null)}
-                className="inline-flex h-8 items-center rounded-[3px] border px-3 text-xs hover:bg-secondary"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDelete(pendingDelete)}
-                className="inline-flex h-8 items-center rounded-[3px] px-3 text-xs font-medium text-white"
-                style={{ background: 'var(--danger-500)' }}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingDelete(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => { if (pendingDelete) void handleDelete(pendingDelete) }}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -759,18 +756,17 @@ function StageBadge({ stage }: { stage: number }) {
           : 'Complete'
   const Icon = stage === 3 ? Check : Sparkles
   return (
-    <span
-      className="inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 text-[11px] font-medium"
-      style={{
-        background:
-          stage === 3
-            ? 'color-mix(in srgb, var(--ok-500) 14%, transparent)'
-            : 'color-mix(in srgb, var(--accent-500) 14%, transparent)',
-        color: stage === 3 ? 'var(--ok-300)' : 'var(--accent-400)',
-      }}
+    <Badge
+      variant="outline"
+      className={cn(
+        'gap-1 text-[11px]',
+        stage === 3
+          ? 'border-[color:var(--ok-500)]/40 bg-[color:var(--ok-500)]/10 text-[color:var(--ok-300)]'
+          : 'border-[color:var(--accent-500)]/40 bg-[color:var(--accent-500)]/10 text-[color:var(--accent-400)]',
+      )}
     >
       <Icon className="size-3" strokeWidth={2} />
       {label}
-    </span>
+    </Badge>
   )
 }

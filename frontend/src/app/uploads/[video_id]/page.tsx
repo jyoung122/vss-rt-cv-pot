@@ -25,6 +25,15 @@ import {
   formatBytes,
 } from '@/lib/uploads'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 // Suppress "unused import" — cn is available for future use
 void cn
@@ -190,13 +199,12 @@ export default function UploadDetailPage() {
       <div className="flex h-full flex-col items-center justify-center gap-4 p-8">
         <div className="font-display text-4xl font-semibold text-muted-foreground">404</div>
         <div className="font-display text-lg">Upload not found</div>
-        <Link
-          href="/uploads"
-          className="inline-flex h-8 items-center gap-1.5 rounded-[3px] border px-3 text-xs hover:bg-secondary transition-colors"
-        >
-          <ChevronLeft className="size-3.5" strokeWidth={1.75} />
-          Back to uploads
-        </Link>
+        <Button variant="outline" size="sm" asChild>
+          <Link href="/uploads">
+            <ChevronLeft className="size-3.5" strokeWidth={1.75} />
+            Back to uploads
+          </Link>
+        </Button>
       </div>
     )
   }
@@ -205,14 +213,14 @@ export default function UploadDetailPage() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-8">
         <div className="text-sm text-destructive">Failed to load: {fetchError}</div>
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          size="sm"
           onClick={() => void load()}
-          className="inline-flex h-8 items-center gap-1.5 rounded-[3px] border px-3 text-xs hover:bg-secondary transition-colors"
         >
           <RefreshCw className="size-3.5" strokeWidth={1.75} />
           Retry
-        </button>
+        </Button>
       </div>
     )
   }
@@ -238,34 +246,40 @@ export default function UploadDetailPage() {
           {upload.original_filename}
         </span>
         <div className="flex-1" />
+
         {/* Analysis complete badge */}
-        <span
-          className="inline-flex items-center gap-1.5 rounded-[3px] px-2.5 py-1 text-[11px] font-medium"
-          style={{
-            background: 'color-mix(in srgb, var(--ok-500) 14%, transparent)',
-            color: 'var(--ok-300)',
-          }}
+        <Badge
+          variant="outline"
+          className="gap-1.5 border-[color:var(--ok-500)]/40 bg-[color:var(--ok-500)]/10 text-[color:var(--ok-300)]"
         >
           <Check className="size-3" strokeWidth={2.5} />
           Analysis complete
-        </span>
-        <button
-          type="button"
-          title="Coming in v1.5"
-          className="inline-flex h-8 items-center gap-1.5 rounded-[3px] border px-3 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-        >
-          <Download className="size-3.5" strokeWidth={1.75} />
-          Export report
-        </button>
-        <button
-          type="button"
-          title="Coming in v1.5"
-          className="inline-flex h-8 items-center gap-1.5 rounded-[3px] px-3 text-xs font-medium text-white transition-colors"
-          style={{ background: 'var(--accent-500)' }}
-        >
-          <Plus className="size-3.5" strokeWidth={2} />
-          Create detection rule
-        </button>
+        </Badge>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="sm" className="gap-1.5" disabled>
+              <Download className="size-3.5" strokeWidth={1.75} />
+              Export report
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Coming in v1.5</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="default"
+              size="sm"
+              className="gap-1.5"
+              disabled
+            >
+              <Plus className="size-3.5" strokeWidth={2} />
+              Create detection rule
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Coming in v1.5</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* ── Meta strip ──────────────────────────────────────────────────── */}
@@ -305,7 +319,7 @@ export default function UploadDetailPage() {
 
           {/* Prompt recap card — only if prompt present */}
           {upload.prompt && (
-            <div
+            <Card
               className="flex items-center gap-3 rounded-[3px] px-3.5 py-3"
               style={{
                 background: 'color-mix(in srgb, var(--accent-500) 8%, var(--surface-1))',
@@ -333,17 +347,19 @@ export default function UploadDetailPage() {
                   &ldquo;{upload.prompt}&rdquo;
                 </div>
               </div>
-              <button
-                type="button"
-                title="Coming in v1.5"
-                className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[3px] border px-2.5 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-              >
-                Refine query
-              </button>
-            </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="shrink-0" disabled>
+                    Refine query
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Coming in v1.5</TooltipContent>
+              </Tooltip>
+            </Card>
           )}
 
-          {/* Video player card */}
+          {/* design: not a Card — video player container with unique aspect ratio + dark chrome.
+              Card would add a conflicting bg/border that fights the #000 player aesthetic. */}
           <div
             className="overflow-hidden rounded-[3px]"
             style={{ background: '#000', border: '1px solid var(--border)' }}
@@ -385,48 +401,50 @@ export default function UploadDetailPage() {
             >
               {/* Controls row */}
               <div className="mb-3 flex items-center gap-3">
-                <button
+                {/* Play/pause — ghost icon on dark bg, bespoke accent background */}
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon"
                   onClick={togglePlay}
-                  className="grid place-items-center rounded-[3px] text-white transition-opacity hover:opacity-90"
-                  style={{
-                    width: 34, height: 34,
-                    background: 'var(--accent-500)',
-                    border: 'none',
-                    flexShrink: 0,
-                    cursor: 'pointer',
-                  }}
+                  className="size-[34px] shrink-0 text-white hover:opacity-90 hover:bg-transparent"
+                  style={{ background: 'var(--accent-500)' }}
                   aria-label={playing ? 'Pause' : 'Play'}
                 >
                   {playing
                     ? <Pause className="size-3.5" strokeWidth={2} />
                     : <Play className="size-3.5" strokeWidth={2} />}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={prevTrack}
-                  className="inline-flex items-center gap-1 rounded-[3px] px-2 py-1 text-[12px] transition-colors"
+                  className="gap-1 px-2 py-1 text-[12px] hover:bg-white/10"
                   style={{ color: 'rgba(255,255,255,0.7)' }}
                 >
                   <ChevronLeft className="size-3.5" strokeWidth={1.75} />
                   Prev event
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={nextTrack}
-                  className="inline-flex items-center gap-1 rounded-[3px] px-2 py-1 text-[12px] transition-colors"
+                  className="gap-1 px-2 py-1 text-[12px] hover:bg-white/10"
                   style={{ color: 'rgba(255,255,255,0.7)' }}
                 >
                   Next event
                   <ChevronRight className="size-3.5" strokeWidth={1.75} />
-                </button>
+                </Button>
                 <div className="flex-1" />
                 <div className="font-mono text-[12px]" style={{ color: 'rgba(255,255,255,0.7)' }}>
                   {fmtTime(time)} / {duration > 0 ? fmtTime(duration) : '--:--'}
                 </div>
               </div>
 
-              {/* Scrubber */}
+              {/* design: not a shadcn primitive — bespoke scrubber DOM with custom track bands per
+                  detected object, playhead, and click-to-seek. No primitive maps to this. */}
               <div
                 className="relative cursor-pointer"
                 style={{ height: 26 }}
@@ -517,7 +535,7 @@ export default function UploadDetailPage() {
 
           {/* Selected track summary card */}
           {selectedTrack && (
-            <div
+            <Card
               className="rounded-[3px] p-4"
               style={{
                 border: '1px solid color-mix(in srgb, var(--accent-500) 30%, transparent)',
@@ -541,16 +559,19 @@ export default function UploadDetailPage() {
                   {' · '}
                   <span className="capitalize">{selectedTrack.class}</span>
                 </div>
-                <span
-                  className="inline-flex items-center rounded-[3px] px-2 py-0.5 text-[10px] font-medium capitalize"
+                {/* Selected-track class label badge */}
+                <Badge
+                  variant="outline"
+                  className="capitalize text-[10px]"
                   style={classPillStyle(selectedTrack.class)}
                 >
                   {selectedTrack.class}
-                </span>
+                </Badge>
                 <div className="flex-1" />
-                <div className="font-mono text-[11px]" style={{ color: 'var(--fg-4)' }}>
+                {/* Track count / confidence — secondary mono badge */}
+                <Badge variant="secondary" className="font-mono text-[10px]">
                   @ {fmtTime(selectedTrack.first_t_seconds)} · conf {selectedTrack.max_confidence.toFixed(2)}
-                </div>
+                </Badge>
               </div>
 
               {/* Details */}
@@ -572,43 +593,47 @@ export default function UploadDetailPage() {
 
               {/* Action chips */}
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => {
                     seekTo(selectedTrack.first_t_seconds)
                     if (videoRef.current) void videoRef.current.play()
                   }}
-                  className="inline-flex h-7 items-center gap-1.5 rounded-[3px] border px-2.5 text-[12px] text-foreground hover:bg-secondary transition-colors"
+                  className="gap-1.5 h-7"
                 >
                   <Play className="size-3" strokeWidth={1.75} />
                   Replay segment
-                </button>
-                <button
-                  type="button"
-                  title="Coming in v1.5"
-                  className="inline-flex h-7 items-center gap-1.5 rounded-[3px] border px-2.5 text-[12px] text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-                >
-                  <Download className="size-3" strokeWidth={1.75} />
-                  Export clip
-                </button>
-                <button
-                  type="button"
-                  title="Coming in v1.5"
-                  className="inline-flex h-7 items-center gap-1.5 rounded-[3px] border px-2.5 text-[12px] text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-                >
-                  <Plus className="size-3" strokeWidth={1.75} />
-                  Save to incident
-                </button>
-                <button
-                  type="button"
-                  title="Coming in v1.5"
-                  className="inline-flex h-7 items-center gap-1.5 rounded-[3px] px-2 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <X className="size-3" strokeWidth={1.75} />
-                  Dismiss false positive
-                </button>
+                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="sm" className="gap-1.5 h-7" disabled>
+                      <Download className="size-3" strokeWidth={1.75} />
+                      Export clip
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Coming in v1.5</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="sm" className="gap-1.5 h-7" disabled>
+                      <Plus className="size-3" strokeWidth={1.75} />
+                      Save to incident
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Coming in v1.5</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="sm" className="gap-1.5 h-7" disabled>
+                      <X className="size-3" strokeWidth={1.75} />
+                      Dismiss false positive
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Coming in v1.5</TooltipContent>
+                </Tooltip>
               </div>
-            </div>
+            </Card>
           )}
 
           {/* No track selected hint */}
@@ -722,7 +747,8 @@ function EventsPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Scrollable track list */}
+      {/* design: not a Card — table-style rows with alternating bg, full-width border-b, and
+          click-to-select behavior. Card would add padding/radius that breaks the row grid. */}
       <div className="flex-1 overflow-auto">
         {tracks.map((track, i) => {
           const isSelected = selectedTrackIdx === i
@@ -841,9 +867,9 @@ function LoadingShell() {
         className="flex h-14 items-center gap-3 border-b px-5"
         style={{ background: 'var(--surface-1)' }}
       >
-        <div className="h-3 w-16 animate-pulse rounded-[3px]" style={{ background: 'var(--surface-3)' }} />
-        <div className="h-3 w-3 animate-pulse rounded" style={{ background: 'var(--surface-3)' }} />
-        <div className="h-3 w-48 animate-pulse rounded-[3px]" style={{ background: 'var(--surface-3)' }} />
+        <Skeleton className="h-3 w-16 rounded-[3px]" />
+        <Skeleton className="h-3 w-3 rounded" />
+        <Skeleton className="h-3 w-48 rounded-[3px]" />
       </div>
       {/* meta strip skeleton */}
       <div
@@ -852,8 +878,8 @@ function LoadingShell() {
       >
         {Array.from({ length: 6 }).map((_, i) => (
           <div key={i} className="flex flex-col gap-1">
-            <div className="h-2 w-12 animate-pulse rounded" style={{ background: 'var(--surface-3)' }} />
-            <div className="h-3 w-16 animate-pulse rounded" style={{ background: 'var(--surface-3)' }} />
+            <Skeleton className="h-2 w-12 rounded" />
+            <Skeleton className="h-3 w-16 rounded" />
           </div>
         ))}
       </div>
