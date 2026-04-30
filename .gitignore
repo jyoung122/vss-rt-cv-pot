@@ -5,6 +5,8 @@ data/models/**/*.onnx
 data/models/**/*.engine
 data/models/**/*.pth
 data/models/**/*.etlt
+data/models/**/*.txt
+data/models/**/*.yaml
 .env
 .env.local
 .ipynb_checkpoints/
