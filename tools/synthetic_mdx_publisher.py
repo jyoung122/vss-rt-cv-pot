@@ -26,11 +26,73 @@ import random
 import time
 from dataclasses import dataclass
 
-import asyncpg
-import redis.asyncio as aioredis
-
 
 CLASSES = ["Car", "Person", "Bicycle"]
+
+# ---------------------------------------------------------------------------
+# Collision scenario
+# ---------------------------------------------------------------------------
+# Two cars approach each other, collide with sustained bbox overlap, then remain
+# stationary in the overlapped pose. Starting positions are computed from the
+# requested duration so the default 20s clip exercises vehicle_collision.
+
+_COL_APPROACH_VX = 24.0      # px/s for each car before impact
+_COL_IMPACT_AT = 0.45        # fraction of clip duration, capped by static tail
+_COL_IMPACT_GAP_PX = 72.0    # centre gap at impact; IOU is safely above 0.3
+_COL_STATIC_S = 4.0          # minimum post-impact stationary tail
+_COL_MIN_APPROACH_S = 2.0    # enough motion to establish pre-impact velocity
+
+
+@dataclass
+class CollisionCar:
+    track_id: int
+    # initial centre-x, centre-y, half-w, half-h
+    cx: float
+    cy: float
+    hw: float
+    hh: float
+    # signed closing velocity (positive = moving right)
+    vx: float
+
+    def position_at(self, t_impact: float, t: float) -> tuple[float, float]:
+        """Return (cx, cy) at time t.  Cars stop at impact and stay overlapping."""
+        if t < t_impact:
+            return self.cx + self.vx * t, self.cy
+        # During and after impact the car sits at its impact position
+        return self.cx + self.vx * t_impact, self.cy
+
+    def bbox(self, cx: float, cy: float) -> tuple[float, float, float, float]:
+        return cx - self.hw, cy - self.hh, cx + self.hw, cy + self.hh
+
+
+def _collision_geometry(
+    duration: float,
+    width: int,
+    height: int,
+) -> tuple[float, CollisionCar, CollisionCar]:
+    if duration < _COL_MIN_APPROACH_S + _COL_STATIC_S:
+        raise ValueError(
+            "duration is too short: need at least "
+            f"{_COL_MIN_APPROACH_S + _COL_STATIC_S:.1f}s for approach + stationary tail"
+        )
+
+    t_impact = min(duration * _COL_IMPACT_AT, duration - _COL_STATIC_S)
+    cy = height / 2.0
+    hw, hh = 80.0, 50.0
+    center_x = width / 2.0
+    impact_a_x = center_x - (_COL_IMPACT_GAP_PX / 2.0)
+    impact_b_x = center_x + (_COL_IMPACT_GAP_PX / 2.0)
+    car_a_start_x = impact_a_x - (_COL_APPROACH_VX * t_impact)
+    car_b_start_x = impact_b_x + (_COL_APPROACH_VX * t_impact)
+
+    if car_a_start_x - hw < 0 or car_b_start_x + hw > width:
+        raise ValueError("frame is too narrow for the requested duration/velocity geometry")
+
+    return (
+        t_impact,
+        CollisionCar(track_id=1, cx=car_a_start_x, cy=cy, hw=hw, hh=hh, vx=_COL_APPROACH_VX),
+        CollisionCar(track_id=2, cx=car_b_start_x, cy=cy, hw=hw, hh=hh, vx=-_COL_APPROACH_VX),
+    )
 
 
 @dataclass
@@ -86,6 +148,8 @@ def _format_object(t: Track, frame_w: int, frame_h: int) -> str:
 
 async def _ensure_upload(pg_url: str, video_id: str, duration: float, fps: float,
                          width: int, height: int) -> None:
+    import asyncpg
+
     conn = await asyncpg.connect(pg_url)
     try:
         await conn.execute(
@@ -103,11 +167,79 @@ async def _ensure_upload(pg_url: str, video_id: str, duration: float, fps: float
         await conn.close()
 
 
+async def _run_collision_scenario(args: argparse.Namespace) -> None:
+    """Script two cars approaching, overlapping, and stopping — validates vehicle_collision rule."""
+    import redis.asyncio as aioredis
+
+    fps = args.fps
+    total_frames = int(args.duration * fps)
+
+    try:
+        t_impact, car_a, car_b = _collision_geometry(args.duration, args.width, args.height)
+    except ValueError as exc:
+        raise SystemExit(
+            f"[collision] {exc}"
+        ) from exc
+    frame_impact = int(t_impact * fps)
+
+    r = aioredis.from_url(args.redis_url, decode_responses=True)
+    await r.set("current_video_id", args.video_id)
+    print(f"[ok] current_video_id = {args.video_id}")
+    print(
+        f"[collision] impact at t={t_impact:.1f}s (frame {frame_impact}), "
+        f"impact_gap={_COL_IMPACT_GAP_PX:.0f}px, stationary_tail={args.duration - t_impact:.1f}s"
+    )
+
+    t0 = time.monotonic()
+    for frame_id in range(total_frames):
+        t = frame_id / fps
+        objects = []
+
+        for car in (car_a, car_b):
+            cx, cy_ = car.position_at(t_impact, t)
+            x1, y1, x2, y2 = car.bbox(cx, cy_)
+            # Clamp to frame
+            x1, y1 = max(0.0, x1), max(0.0, y1)
+            x2 = min(float(args.width), x2)
+            y2 = min(float(args.height), y2)
+            conf = round(random.uniform(0.80, 0.95), 3)
+            objects.append(
+                f"{car.track_id}|{x1:.1f}|{y1:.1f}|{x2:.1f}|{y2:.1f}|Car|#|||||||{conf}"
+            )
+
+        meta = {
+            "id": frame_id,
+            "@timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+            "sensorId": args.sensor_id,
+            "objects": objects,
+        }
+        await r.xadd("mdx-raw", {"metadata": json.dumps(meta)})
+
+        rate = args.rate or fps
+        if frame_id % max(1, int(rate)) == 0:
+            phase = "approach" if t < t_impact else "stationary-overlap"
+            print(f"  frame {frame_id}/{total_frames}  t={t:.2f}s  phase={phase}")
+
+        target = t0 + (frame_id + 1) / (args.rate or fps)
+        sleep = target - time.monotonic()
+        if sleep > 0:
+            await asyncio.sleep(sleep)
+
+    await r.aclose()
+    print(f"[done] collision scenario: {total_frames} frames in {time.monotonic()-t0:.1f}s")
+
+
 async def run(args: argparse.Namespace) -> None:
     if args.ensure_upload:
         await _ensure_upload(args.pg_url, args.video_id, args.duration, args.fps,
                              args.width, args.height)
         print(f"[ok] ensured uploads row for {args.video_id}")
+
+    if args.scenario == "collision":
+        await _run_collision_scenario(args)
+        return
+
+    import redis.asyncio as aioredis
 
     r = aioredis.from_url(args.redis_url, decode_responses=True)
     await r.set("current_video_id", args.video_id)
@@ -169,6 +301,10 @@ def main() -> None:
     p.add_argument("--sensor-id", default="synthetic-0")
     p.add_argument("--ensure-upload", action="store_true",
                    help="INSERT an uploads row first (uses DATABASE_URL or --pg-url)")
+    p.add_argument("--scenario", choices=["collision"], default=None,
+                   help="Run a scripted scenario instead of random traffic. "
+                        "'collision': two cars approach, overlap bboxes, then stop — "
+                        "validates the vehicle_collision rule without GPU time.")
     args = p.parse_args()
     asyncio.run(run(args))
 
