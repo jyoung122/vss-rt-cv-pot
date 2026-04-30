@@ -6,4 +6,8 @@ data/models/**/*.engine
 data/models/**/*.pth
 data/models/**/*.etlt
 .env
+.env.local
 .ipynb_checkpoints/
+__pycache__/
+*.py[cod]
+backend/.venv/
