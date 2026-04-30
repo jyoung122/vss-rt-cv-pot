@@ -7,3 +7,4 @@ data/models/**/*.pth
 data/models/**/*.etlt
 .env
 .ipynb_checkpoints/
+__pycache__/
