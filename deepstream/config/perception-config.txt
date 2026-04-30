@@ -3,7 +3,7 @@ enable-perf-measurement=1
 perf-measurement-interval-sec=5
 
 [tests]
-file-loop=1
+file-loop=0
 
 [tiled-display]
 enable=0

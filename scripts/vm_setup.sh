@@ -49,6 +49,17 @@ fi
 UBUNTU_CODENAME="${UBUNTU_CODENAME:-${VERSION_CODENAME:-jammy}}"
 ARCH="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
 
+install_claude() {
+  section "Claude CLI"
+  if command -v claude >/dev/null 2>&1; then
+    ok "Claude CLI already installed ($(claude --version 2>/dev/null | head -1))"
+    return 0
+  fi
+  log "Installing Claude CLI…"
+  curl -fsSL https://claude.ai/install.sh | bash
+  ok "Claude CLI installed"
+}
+
 # ── installers ───────────────────────────────────────────────────────────────
 install_base() {
   section "Base packages"
@@ -246,6 +257,7 @@ main() {
       install_docker
       install_nvidia_toolkit
       install_ngc_cli
+      install_claude
       ;;
     validate)
       validate
@@ -255,6 +267,7 @@ main() {
       install_docker
       install_nvidia_toolkit
       install_ngc_cli
+      install_claude
       validate || true
       next_steps
       ;;

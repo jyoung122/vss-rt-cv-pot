@@ -79,7 +79,7 @@ docker compose -f docker-compose.dev.yml exec backend \
 
 ## Next steps
 
-See [`../V1_PLAN.md`](../V1_PLAN.md) for the burn list. Phases 1 (rebrand) and 2 (Uploads UI + detail page + Postgres + event indexer) are landed. Burn list item #1 (synthetic publisher) is landed. Up next, in priority order:
+See ['V1_PLAN.md`](V1_PLAN.md) for the burn list. Phases 1 (rebrand) and 2 (Uploads UI + detail page + Postgres + event indexer) are landed. Burn list item #1 (synthetic publisher) is landed. Up next, in priority order:
 
 1. Dashboard (`/`) OpsVision palette pass.
 2. Phase 3 backend hardening: `file-loop=0` in `deepstream/config/perception-config.txt`, healthchecks across services, TRT engine cache as a named volume, drop `redis-commander`, refresh `.env.example`.
