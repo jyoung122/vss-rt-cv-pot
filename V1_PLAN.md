@@ -120,7 +120,7 @@ Self-hosted `nvcr.io/nim/nvidia/cosmos-reason2-2b:latest` confirms / rejects / r
 27. ✅ VLM validator worker `backend/app/vlm_validator.py` — finds pending incidents, extracts clip via ffmpeg, calls Cosmos `/v1/chat/completions` with base64 video + structured prompt, strips `<think>` tags, parses JSON verdict, writes back. `VLM_ENABLED=false` → `vlm_status='skipped'` in one UPDATE. Spawned as `asyncio.create_task` from the analyze endpoint.
 28. ✅ UI: VLM pill on each incident card (`Confirmed` / `Rejected` / `Uncertain` / `Pending` / `Error`), expandable "Why" panel with reasoning + model + latency, filter chips (`All` / `Confirmed` / `Rejected` / `Pending`) at top of Scenarios tab.
 29. ✅ Dashboard KPI split: `Rule-detected` vs `VLM-confirmed` (by Cosmos-Reason2).
-30. ⏳ `docs/deploy.md` + `docs/gotchas.md` — Cosmos cold-start (multi-minute weight load), cache volume, GPU sharing notes (DeepStream + Cosmos co-resident on GPU 0), quantized-variant selection per VRAM tier.
+30. ✅ `docs/deploy.md` + `docs/gotchas.md` — Cosmos cold-start (10–15 min first boot, ~60 s after cache), GPU co-residency (~9 GB combined on A6000), `VLM_ENABLED=false` skip path, `--scale cosmos=0` escape hatch.
 
 ### Deferred (not blocking v1 demo)
 - ⏸ `/events` global view (cross-upload filtering)

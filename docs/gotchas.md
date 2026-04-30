@@ -106,6 +106,40 @@ brev copy ./clip.mp4 aims:/home/shadeform/vss-rt-cv-pot/data/videos/
 
 ---
 
+## Cosmos / VLM (Phase 8)
+
+### `aims-cosmos` healthcheck fails for 10–15 minutes on first boot
+
+**Cause.** The NIM container downloads ~15 GB of Cosmos-Reason2-2B weights before the HTTP server starts. The healthcheck polls `/v1/health/ready`; it will return non-200 until the download and model load complete.
+
+**Fix.** Wait. The `start_period: 10m` in the healthcheck prevents the container from being marked unhealthy during this window. Watch progress with `docker logs -f aims-cosmos`.
+
+**Subsequent restarts.** The `aims-cosmos-cache` named volume persists the weights. Subsequent cold starts take ~60 s, not 10–15 min.
+
+### `aims-cosmos` is healthy but `POST /analyze` returns VLM errors
+
+**Cause.** Most likely the Cosmos API rejected the base64 video payload — either the clip is malformed or the API schema differs from the assumed OpenAI-compatible format.
+
+**Diagnosis.**
+```bash
+docker logs vss-backend | grep "vlm_validator"   # look for the error message
+docker logs aims-cosmos                           # look for request errors
+```
+
+**Quick workaround.** Set `VLM_ENABLED=false` in `.env` and `docker compose restart backend`. Incidents will be marked `skipped` and the rest of the pipeline continues unaffected.
+
+### `VLM_ENABLED=false` — how to skip Cosmos entirely
+
+The backend handles this gracefully: after rule detection, a single `UPDATE ... SET vlm_status='skipped'` runs and returns immediately. The `aims-cosmos` container can be excluded entirely:
+
+```bash
+docker compose up -d --build --scale cosmos=0
+```
+
+The UI will show no VLM pills (status `skipped` renders nothing visible).
+
+---
+
 ## Compose hygiene
 
 - `restart: unless-stopped` is on every long-running service — good.

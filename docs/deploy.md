@@ -1,6 +1,6 @@
 # SSI AIMS — Deploy Runbook
 
-Cold-deploy on a fresh GPU VM. Validated 2026-04-30 on Brev A6000 (driver 580, CUDA 13). Allow ~30 min end-to-end.
+Cold-deploy on a fresh GPU VM. Validated 2026-04-30 on Brev A6000 (driver 580, CUDA 13). Allow ~45 min end-to-end (Phase 8 Cosmos weight load adds ~10–15 min on first boot).
 
 If something doesn't work, [`gotchas.md`](gotchas.md) has the symptom → fix table.
 
@@ -9,7 +9,8 @@ If something doesn't work, [`gotchas.md`](gotchas.md) has the symptom → fix ta
 ## 0. Prerequisites
 
 - Linux GPU host. **Ampere or newer**, ≥ 24 GB VRAM, NVIDIA driver ≥ 580.
-- 250 GB disk free (images + model + sample clips).
+  - Phase 8 (VLM): DeepStream ~3 GB + Cosmos-Reason2-2B ~5–6 GB BF16 ≈ 9 GB peak. A6000 48 GB has comfortable headroom.
+- 250 GB disk free (images + model + sample clips + Cosmos weight cache ~15 GB).
 - Outbound HTTPS to `nvcr.io` and `api.ngc.nvidia.com`.
 - An NGC API key — see [NGC API Keys](https://org.ngc.nvidia.com/setup/api-keys).
 - Sudo on the host.
@@ -61,6 +62,7 @@ Required keys:
 | `PERCEPTION_TAG` / `NVSTREAMER_TAG` / `SDR_TAG` | `3.1.0` |
 | `POSTGRES_PASSWORD` | choose a password (default `aims` is fine for demo) |
 | `DATABASE_URL` | `postgresql://aims:<POSTGRES_PASSWORD>@postgres:5432/aims` |
+| `VLM_ENABLED` | `false` to skip Cosmos validation; `true` to enable Phase 8 |
 
 Log in to NGC's container registry:
 
@@ -112,11 +114,15 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Expected services: `aims-postgres`, `vss-redis`, `vss-nvstreamer`, `vss-sdr`, `vss-rt-cv`, `vss-backend`, `vss-frontend`.
+Expected services: `aims-postgres`, `vss-redis`, `vss-nvstreamer`, `vss-sdr`, `vss-rt-cv`, `vss-backend`, `vss-frontend`, `aims-cosmos`.
+
+> If `VLM_ENABLED=false` you can omit the cosmos service entirely: `docker compose up -d --build --scale cosmos=0`. The backend will still start and VLM results will be marked `skipped`.
 
 ---
 
-## 6. Wait for the TRT engine cold compile
+## 6. Wait for first-boot weight loads
+
+### TRT engine (DeepStream)
 
 First boot of `vss-rt-cv` builds the FP16 engine from the ONNX. **~3.5 minutes with no progress output** — this is normal, do not assume it has hung.
 
@@ -130,6 +136,21 @@ echo "engine ready"
 ```
 
 The container will then crash-loop on a placeholder RTSP source until step 7 — that is expected. Each loop is fast (seconds) once the engine is cached.
+
+### Cosmos-Reason2-2B weight load (Phase 8 only)
+
+The `aims-cosmos` container loads ~15 GB of model weights on first start. **Allow 10–15 minutes** before the healthcheck passes. The `aims-cosmos-cache` named volume persists the weights so subsequent restarts skip the download (~60 s).
+
+Watch it become ready:
+
+```bash
+docker logs -f aims-cosmos   # wait for "Application startup complete"
+# or poll the health endpoint:
+until curl -fsS http://localhost:8000/v1/health/ready; do sleep 15; done
+echo "cosmos ready"
+```
+
+GPU co-residency note: DeepStream and Cosmos share GPU 0. DeepStream uses ~3 GB for inference; Cosmos-Reason2-2B BF16 uses ~5–6 GB. Combined peak is well under the A6000's 48 GB. VLM validation only runs during the `analyze` call (not during video processing), so there is no simultaneous GPU contention in normal operation.
 
 ---
 
