@@ -2,8 +2,11 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'VSS RT-CV POT',
-  description: 'Real-time Computer Vision Perception on Tape',
+  title: 'SSI AIMS — AI Monitoring System',
+  description: 'SSI AIMS — real-time computer vision monitoring',
+  icons: {
+    icon: '/brand/favicon.png',
+  },
 }
 
 export default function RootLayout({

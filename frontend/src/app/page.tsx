@@ -42,10 +42,20 @@ export default function Home() {
     <div className="min-h-screen bg-gray-950 text-gray-100">
       {/* Header */}
       <div className="border-b border-gray-800 bg-gray-900/50 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <h1 className="text-sm font-light text-gray-400">
-            VSS RT-CV — Perception POT
-          </h1>
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center gap-3">
+          <img
+            src="/brand/ssi-logo.jpg"
+            alt="SSI"
+            className="h-8 w-auto rounded-sm"
+          />
+          <div className="flex items-baseline gap-2">
+            <span className="text-lg font-semibold tracking-tight text-gray-100">
+              AIMS
+            </span>
+            <span className="text-xs font-light text-gray-500">
+              AI Monitoring System
+            </span>
+          </div>
         </div>
       </div>
 
