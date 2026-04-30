@@ -18,8 +18,10 @@ services:
   redis:
     image: redis:8.2.2-alpine
     container_name: aims-redis-dev
-    ports:
-      - "6379:6379"
+    # No host port binding — backend reaches redis on the compose network.
+    # Uncomment if you need redis-cli from the host (and the host's 6379 is free):
+    # ports:
+    #   - "6379:6379"
     networks:
       - aims-dev
     restart: unless-stopped
