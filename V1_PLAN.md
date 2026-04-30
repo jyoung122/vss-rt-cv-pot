@@ -80,9 +80,9 @@ What we're actually working on now, in order. Tick as we go.
 **Phase 3 — backend hardening** (~½ day total, all small)
 4. ✅ `file-loop=0` set in `deepstream/config/perception-config.txt` (commit `4c5e6da`).
 5. ✅ Healthchecks on `redis`, `postgres`, `backend`, `vss-rt-cv` in `docker-compose.yml`; backend now serves `/healthz` and keeps `/health` as an alias. Verified with `docker compose config`, `python3 -m compileall backend/app`, and `git diff --check`.
-6. ⏳ TRT engine cache as a named volume — avoid 3.5min cold builds on container restart. **When this lands, drop the `chmod -R 777 data/models` step from `docs/deploy.md` step 4 and the matching gotcha from `docs/gotchas.md`.**
-7. ⏳ Drop `redis-commander` from prod compose.
-8. ⏳ `.env.example` updated — `NGC_API_KEY`, `DATA_DIR`, `HOST_IP`, `DATABASE_URL`, `POSTGRES_PASSWORD`.
+6. ⏸ TRT engine cache as a named volume — removes the `chmod -R 777 data/models` deploy step; day-2 ergonomics, not blocking v1 demo.
+7. ✅ Drop `redis-commander` from prod compose.
+8. ✅ `.env.example` updated — `NGC_CLI_API_KEY`, `DATA_DIR`, `HOST_IP`, `DATABASE_URL`, `POSTGRES_PASSWORD`.
 
 **Phase 4 — repo rename** (~½ day)
 9. ⏳ `git mv vss-rt-cv-pot aims` (one clean commit).

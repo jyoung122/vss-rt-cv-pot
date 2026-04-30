@@ -57,7 +57,7 @@ App run failed
 
 **Signal it's working.** GPU goes from idle to ~5–15 GB usage in `nvidia-smi`. The `.engine` file appears in `data/models/trafficcamnet_transformer/` when done.
 
-**Persistence.** The `.engine` lives on the host bind-mount `data/models/`, so subsequent restarts skip compilation. Phase 3 burn-list item 6 will move this to a named volume so it's not coupled to the host path.
+**Persistence.** The `.engine` lives on the host bind-mount `data/models/`, so subsequent restarts skip compilation. Moving to a named volume (day-2 item) would decouple it from the host path.
 
 ---
 
@@ -108,9 +108,9 @@ brev copy ./clip.mp4 aims:/home/shadeform/vss-rt-cv-pot/data/videos/
 
 ## Compose hygiene
 
-- `redis-commander` is still in `docker-compose.yml` (port 8081) — Phase 3 burn-list item 7 drops it from prod.
 - `restart: unless-stopped` is on every long-running service — good.
 - Healthchecks are defined for `redis`, `postgres`, `backend`, and `vss-rt-cv`.
+- `redis-commander` removed from prod compose. Use `docker exec vss-redis redis-cli` for ad-hoc inspection.
 
 ---
 

@@ -59,6 +59,8 @@ Required keys:
 | `DATA_DIR` | `./data` |
 | `NUM_SENSORS` | `1` |
 | `PERCEPTION_TAG` / `NVSTREAMER_TAG` / `SDR_TAG` | `3.1.0` |
+| `POSTGRES_PASSWORD` | choose a password (default `aims` is fine for demo) |
+| `DATABASE_URL` | `postgresql://aims:<POSTGRES_PASSWORD>@postgres:5432/aims` |
 
 Log in to NGC's container registry:
 
@@ -99,7 +101,7 @@ chmod -R 777 data/models
 mkdir -p data/videos && chmod 777 data/videos
 ```
 
-> Phase 3 task 6 will move the engine cache to a named Docker volume and retire this step.
+> Day-2 item: moving the engine cache to a named Docker volume would retire this step.
 
 ---
 
@@ -110,7 +112,7 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Expected services: `aims-postgres`, `vss-redis`, `vss-nvstreamer`, `vss-sdr`, `vss-rt-cv`, `vss-backend`, `vss-frontend`, `vss-redis-commander`.
+Expected services: `aims-postgres`, `vss-redis`, `vss-nvstreamer`, `vss-sdr`, `vss-rt-cv`, `vss-backend`, `vss-frontend`.
 
 ---
 
