@@ -6,10 +6,12 @@
 
 set -euo pipefail
 
-# Copy config to writable location, then patch placeholders
-SRC_CONFIG=/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/perception-config.txt
-CONFIG=/tmp/perception-config.txt
-cp "$SRC_CONFIG" "$CONFIG"
+# Stage configs in a writable dir so deepstream-app can resolve relative `config-file=` paths
+SRC_DIR=/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app
+WORK_DIR=/tmp/ds-config
+CONFIG=$WORK_DIR/perception-config.txt
+mkdir -p "$WORK_DIR"
+cp "$SRC_DIR/perception-config.txt" "$SRC_DIR/rtdetr-960x544.txt" "$SRC_DIR/rtdetr-960x544-labels.txt" "$WORK_DIR/"
 
 sed -i "s/REDIS_HOST_PLACEHOLDER/${REDIS_HOST:-redis}/g" "$CONFIG"
 
@@ -46,4 +48,5 @@ fi
 # SDR manages stream sources dynamically — start DeepStream with the base config
 # vss-rt-cv's own entrypoint or deepstream-app handles stream updates from SDR
 echo "[ds-start] Starting DeepStream perception pipeline..."
+cd "$WORK_DIR"
 exec deepstream-app -c "$CONFIG"

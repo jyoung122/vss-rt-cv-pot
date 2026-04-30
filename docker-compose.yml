@@ -12,6 +12,7 @@ services:
     container_name: vss-redis
     ports:
       - "6379:6379"
+      - "4001:4001"
     networks:
       - vss-net
     restart: unless-stopped
@@ -44,14 +45,16 @@ services:
   sdr:
     image: nvcr.io/nvidia/vss-core/sdr:${SDR_TAG}
     container_name: vss-sdr
-    ports:
-      - "4001:4001"
+    # SDR assumes a K8s-pod-style deployment with Redis colocated (hardcoded localhost:6379).
+    # Share Redis's network namespace so localhost resolves to it; SDR's port 4001 is exposed via the redis service.
+    network_mode: "service:redis"
     environment:
       NVSTREAMER_URL: http://nvstreamer:30000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - nvstreamer
-    networks:
-      - vss-net
+      - redis
     restart: unless-stopped
 
   vss-rt-cv:
