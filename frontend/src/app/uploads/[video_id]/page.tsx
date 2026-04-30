@@ -317,45 +317,34 @@ export default function UploadDetailPage() {
           style={{ minWidth: 0 }}
         >
 
-          {/* Prompt recap card — only if prompt present */}
+          {/* Prompt recap — single-line, low-profile */}
           {upload.prompt && (
-            <Card
-              className="flex items-center gap-3 rounded-[3px] px-3.5 py-3"
+            <div
+              className="flex items-center gap-2 rounded-[3px] px-2.5 py-1.5 text-[12px]"
               style={{
-                background: 'color-mix(in srgb, var(--accent-500) 8%, var(--surface-1))',
-                border: '1px solid color-mix(in srgb, var(--accent-500) 25%, transparent)',
+                background: 'color-mix(in srgb, var(--accent-500) 6%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--accent-500) 20%, transparent)',
               }}
             >
-              <div
-                className="grid shrink-0 place-items-center rounded-[3px]"
-                style={{
-                  width: 28, height: 28,
-                  background: 'var(--accent-500)',
-                  color: '#fff',
-                }}
+              <Sparkles
+                className="size-3 shrink-0"
+                strokeWidth={1.75}
+                style={{ color: 'var(--accent-400)' }}
+              />
+              <span
+                className="text-[10px] font-semibold uppercase tracking-[0.1em]"
+                style={{ color: 'var(--fg-4)' }}
               >
-                <Sparkles className="size-3.5" strokeWidth={1.75} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div
-                  className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.1em]"
-                  style={{ color: 'var(--fg-4)' }}
-                >
-                  Your query
-                </div>
-                <div className="text-[14px]" style={{ color: 'var(--fg-1)' }}>
-                  &ldquo;{upload.prompt}&rdquo;
-                </div>
-              </div>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="outline" size="sm" className="shrink-0" disabled>
-                    Refine query
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Coming in v1.5</TooltipContent>
-              </Tooltip>
-            </Card>
+                Query
+              </span>
+              <span
+                className="min-w-0 flex-1 truncate"
+                style={{ color: 'var(--fg-2)' }}
+                title={upload.prompt}
+              >
+                {upload.prompt}
+              </span>
+            </div>
           )}
 
           {/* design: not a Card — video player container with unique aspect ratio + dark chrome.
