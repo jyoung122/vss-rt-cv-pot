@@ -53,6 +53,7 @@ What we're actually working on now, in order. Tick as we go.
 - ✅ OpsVision palette, fonts (Inter / Space Grotesk / JetBrains Mono), token system
 - ✅ `/uploads` list page rebuilt from OpsVision design (drag-drop, prompt textarea, active-upload card, history table)
 - ✅ `/uploads/[video_id]` detail page from OpsVision design (player, scrubber with track bands, prompt recap, selected-track summary, Events/Scenarios tabs)
+- ✅ Dashboard (`/`) rebuilt as OpsVision analytics overview — real Uploads-backed KPIs + polished demo-data placeholders for unavailable analytics modules
 - ✅ Postgres-backed backend (uploads + events tables, schema.sql, asyncpg)
 - ✅ Per-run unique `video_id` (file collision-safe)
 - ✅ ffprobe metadata extraction (duration / resolution / fps)
@@ -68,13 +69,13 @@ What we're actually working on now, in order. Tick as we go.
 1. ✅ **Synthetic mdx-raw publisher** — `tools/synthetic_mdx_publisher.py` XADDs realistic frames to Redis (13-part DeepStream object format, multi-track lifecycle with motion). `--ensure-upload` stubs a Postgres uploads row for end-to-end detail-page testing without going through the UI. Catches indexer parsing / fps math / scrubber alignment bugs locally before paying GPU time.
 
 **UI polish**
-2. ⏳ **Dashboard (`/`) — OpsVision palette pass** (~30 min) — quick restyle so the homepage doesn't look mismatched next to the polished `/uploads` pages.
-3. ⏸ **Dashboard — full live-ops view from `dashboard.jsx` artboard** (~1 day) — multi-camera grid + live event feed. Strong demo entry point. Defer to v1.1 if time pressure.
+2. ✅ **Dashboard (`/`) — OpsVision analytics overview** — rebuilt homepage from the provided reporting-dashboard artboard. Uses real `GET /api/uploads` data for upload count, indexed events, tracks, analyzed duration, latest upload, and recent upload links; unavailable analytics modules are mocked as restrained "demo data" components. Frontend-only; shadcn primitives only; verified with `cd frontend && npm run build`. Commit `ffe5a9d`.
+3. ⏸ **Dashboard — full live-ops view** (~1 day) — true multi-camera grid + live event feed remains deferred to v1.1. The provided `dashboard.jsx` reference was the analytics/reporting view, not the live-ops view.
 
 **Phase 3 — backend hardening** (~½ day total, all small)
 4. ✅ `file-loop=0` set in `deepstream/config/perception-config.txt` (commit `4c5e6da`).
 5. ⏳ Healthchecks on `redis`, `postgres`, `backend`, `vss-rt-cv` in `docker-compose.yml`.
-6. ⏳ TRT engine cache as a named volume — avoid 3.5min cold builds on container restart.
+6. ⏳ TRT engine cache as a named volume — avoid 3.5min cold builds on container restart. **When this lands, drop the `chmod -R 777 data/models` step from `docs/deploy.md` step 4 and the matching gotcha from `docs/gotchas.md`.**
 7. ⏳ Drop `redis-commander` from prod compose.
 8. ⏳ `.env.example` updated — `NGC_API_KEY`, `DATA_DIR`, `HOST_IP`, `DATABASE_URL`, `POSTGRES_PASSWORD`.
 
