@@ -1,6 +1,6 @@
 # SSI AIMS — Current State
 
-Snapshot of what is actually running on `feat/aims-rebrand` after the "POT-becomes-app" pivot. For the roadmap and burn list see [`../V1_PLAN.md`](../V1_PLAN.md). For onboarding see [`README.md`](./README.md). For DeepStream-only reference material from the POT era see [`FUTURE_STATE_POT_ARCHIVED.md`](./FUTURE_STATE_POT_ARCHIVED.md).
+Snapshot of what is actually running on `main`. For the roadmap and burn list see [`./V1_PLAN.md`](./V1_PLAN.md). For onboarding see [`README.md`](./README.md). For DeepStream-only reference material from the POT era see [`FUTURE_STATE_POT_ARCHIVED.md`](./FUTURE_STATE_POT_ARCHIVED.md).
 
 ---
 
@@ -14,7 +14,7 @@ Snapshot of what is actually running on `feat/aims-rebrand` after the "POT-becom
 
 Two compose stacks, both stable:
 
-- **`docker-compose.yml` — prod.** Eight services: `redis`, `postgres` (aims-postgres), `nvstreamer`, `sdr`, `vss-rt-cv` (DeepStream + GPU), `backend`, `frontend`, `redis-commander`. NVStreamer is up but not in the perception path (see "Known issues"). Phase 3 will drop redis-commander and add healthchecks.
+- **`docker-compose.yml` — prod.** Eight services: `redis`, `postgres` (aims-postgres), `nvstreamer`, `sdr`, `vss-rt-cv` (DeepStream + GPU), `backend`, `frontend`, `redis-commander`. NVStreamer is up but not in the perception path (see "Known issues"). Healthchecks land on `redis`, `postgres`, `backend`, and `vss-rt-cv` (process-based PID-1 check; `start_period: 5m` covers the TRT cold compile). `frontend` and `redis-commander` `depends_on` upgraded to `service_healthy` so first-load 502s on cold start are gone. `redis-commander` removal and TRT engine-cache volume are remaining Phase 3 items.
 - **`docker-compose.dev.yml` — dev (no GPU).** Three services: `redis`, `postgres`, `backend`. No NGC pull. Mounts `./tools` read-only at `/app/tools` so the synthetic publisher runs inside the container.
 
 The DeepStream side is unchanged from the POT — `metropolis_perception_app -m 7 -r 2` runs RT-DETR (TrafficCamNet) → IOU tracker → `nvmsgconv` → `nvmsgbroker` (`libnvds_redis_proto.so`) → `XADD mdx-raw`. Source pacing comes from `sync=1` on the sinks; ~7–8 events/sec at the source's native FPS. All four classes detected (car / bicycle / person / road_sign).
@@ -25,16 +25,19 @@ The DeepStream side is unchanged from the POT — `metropolis_perception_app -m 
 
 **Stack:** FastAPI on Python 3.11-slim, `uvicorn` with `--limit-concurrency 10`, `asyncpg` pool, `redis[hiredis]>=5`, `aiofiles`, `python-multipart`. `ffmpeg` (for `ffprobe`) is installed in the image so the upload handler can read duration / resolution / fps.
 
-**Persistence (Postgres 16-alpine).** `backend/app/db.py` initialises the asyncpg pool at FastAPI lifespan start and runs `backend/app/schema.sql`. Two tables:
+**Persistence (Postgres 16-alpine).** `backend/app/db.py` initialises the asyncpg pool at FastAPI lifespan start and runs `backend/app/schema.sql`. Three tables:
 
 - `uploads` — `video_id` PK (per-run `{stem}-{timestamp}` so re-uploads append a new row), `original_filename`, `prompt`, `duration_s`, `width`, `height`, `fps`, `size_bytes`, `uploaded_at`.
 - `events` — `id BIGSERIAL` PK, `video_id` FK with `ON DELETE CASCADE`, `track_id`, `frame_id`, `t_seconds`, `class`, `confidence`, `bbox_x1..y2`. Indexes on `(video_id, frame_id)` and `(video_id, track_id)`.
+- `incidents` — `id UUID` PK, `video_id` FK with `ON DELETE CASCADE`, `rule_id` (`vehicle_collision` / `ped_impact` / `stationary_vehicle` / `mass_stop`), `severity`, `confidence`, `t_start_s` / `t_end_s`, `frame_start` / `frame_end`, `track_ids INT[]`, `bbox_union JSONB`, `metadata JSONB`. Index on `(video_id, t_start_s)`; unique dedup index on `(video_id, rule_id, t_start_s, track_ids)`. Phase 8 will add `vlm_*` columns for Cosmos verdicts on the same rows.
 
 **Event indexer (`backend/app/event_indexer.py`).** Background asyncio task spawned at lifespan start. Uses Redis `XREADGROUP` (group `indexer`, consumer `indexer-1`, MKSTREAM), parses the pipe-delimited objects out of each `metadata` JSON envelope, looks up `current_video_id` from Redis to associate the frame with an upload, looks up `fps` from the `uploads` row (cached per-process) to compute `t_seconds = frame_id / fps`, and `executemany`s the rows. Poison-pill safe: ack on success or on parse error, retry the outer loop on connection errors.
 
-**Endpoints.** `POST /api/uploads` (multipart; saves file, ffprobes, inserts uploads row, sets `current_video_id`, restarts vss-rt-cv via Docker socket). `GET /api/uploads` (list with `event_count` / `track_count` join). `GET /api/uploads/:id`. `DELETE /api/uploads/:id` (cascade drops events). `GET /api/uploads/:id/events?group=tracks|none` (track-summary or raw rows). `GET /api/uploads/:id/playback` (FileResponse off disk, content-type from extension stored on the row). `WS /ws/events` (live broadcast of mdx-raw entries for the dashboard overlay).
+**Incident worker (`backend/app/incident_worker.py`).** Pixel/track-space rule pack run on demand via `POST /api/uploads/:id/analyze`. Loads all events for the video, builds per-track signals (bisect-windowed velocity, velocity-drop ratio, stationary duration, bbox-aspect change) keyed on `(track_id, normalized_class)` so DeepStream's case-mixed class strings don't split tracks. Pairwise pass computes IOU overlap, centroid proximity, and co-stop. Four rules fire: `vehicle_collision` (sustained IOU + co-stop + stationary tail), `ped_impact` (centroid proximity + person track terminate-or-stop), `stationary_vehicle` (long stop with prior motion to filter parked cars), `mass_stop` (cluster of vehicles sharing a sudden velocity drop). Idempotent ON CONFLICT upsert; re-analyze refines confidence/end time without wiping rows so Phase 8 VLM verdicts will survive.
 
-**Vocabulary:** *event* = raw detection (class + conf + bbox + frame). *Scenario* = semantic interpretation of events over time (out of scope; v1.5).
+**Endpoints.** `POST /api/uploads` (multipart; saves file, ffprobes, inserts uploads row, sets `current_video_id`, restarts vss-rt-cv via Docker socket). `GET /api/uploads` (list with `event_count` / `track_count` join). `GET /api/uploads/:id`. `DELETE /api/uploads/:id` (cascade drops events). `GET /api/uploads/:id/events?group=tracks|none` (track-summary or raw rows). `GET /api/uploads/:id/incidents` (rule-detected incidents). `POST /api/uploads/:id/analyze` (run rule pack, returns `incidents_found`). `GET /api/uploads/:id/playback` (FileResponse off disk). `WS /ws/events` (live broadcast of mdx-raw entries). `GET /healthz` and `/health` for Docker healthcheck.
+
+**Vocabulary.** *Event* = raw detection (class + conf + bbox + frame). *Incident* = rule-detected behavioral pattern in `incidents` table. *Scenario* = the UI tab that renders incidents on the detail page.
 
 ---
 
@@ -45,8 +48,9 @@ The DeepStream side is unchanged from the POT — `metropolis_perception_app -m 
 **Pages.**
 
 - `/uploads` — drag-drop uploader, prompt textarea, history table, suggestion chips, 4-stage progress strip. Click a row → detail page.
-- `/uploads/[video_id]` — two-column layout. Left: HTML5 `<video>`, custom scrubber overlay with per-track detection bands (class-coloured), prev/next track controls, single-line prompt recap pill. Right: tabbed Detected Events panel — Events tab lists tracks (class, max confidence, duration, first bbox) and click-seeks; Scenarios tab is disabled and labelled deferred to v1.5.
-- `/` (dashboard), `/events`, `/settings` — placeholder routes; dashboard palette pass is next on the burn list.
+- `/uploads/[video_id]` — two-column layout. Left: HTML5 `<video>`, custom scrubber overlay with per-track detection bands (class-coloured) **plus an incident band layer** (severity-coloured, click-to-seek, tooltip with rule label + time range), prev/next track controls, single-line prompt recap pill. Right: tabbed Detected Events panel — Events tab lists tracks (class, max confidence, duration, first bbox) and click-seeks; **Scenarios tab is live** and renders rule-detected incident cards (severity badge, confidence, time range, track chips, "Jump to" seek button). Tab trigger shows a count badge when incidents exist.
+- `/` — analytics overview rebuilt from the OpsVision dashboard reference: real Uploads-backed KPIs (upload count, indexed events, tracks, analyzed duration, latest upload, **incidents flagged**) plus polished "demo data" placeholders for analytics modules that don't have backing data yet.
+- `/events`, `/settings` — placeholder routes; not blocking v1 demo.
 
 **Design system.** OpsVision tokens (Synch Solutions orange `#ea6a22` accent on a cool slate `--ink-*` scale) live in `globals.css` under `@theme inline`. shadcn slot bindings (`--background`, `--card`, `--popover`, etc.) are defined alongside so primitives pick up OpsVision colours automatically.
 
@@ -62,13 +66,23 @@ The DeepStream side is unchanged from the POT — `metropolis_perception_app -m 
 
 ## Dev tooling
 
-`tools/synthetic_mdx_publisher.py` is an async script (`redis.asyncio` + `asyncpg` — both already in the backend image) that XADDs realistic detection frames into `mdx-raw` and sets `current_video_id` so the indexer routes them. Multi-track lifecycle (Car / Person / Bicycle, motion drift, spawn/despawn), 13-part DeepStream object format. `--ensure-upload` stubs an `uploads` row in Postgres so the detail page is reachable without going through the UI uploader. Runs inside the dev backend:
+`tools/synthetic_mdx_publisher.py` is an async script (`redis.asyncio` + `asyncpg` — both already in the backend image, lazy-imported so unit tests can pull the pure geometry helpers without those deps) that XADDs realistic detection frames into `mdx-raw` and sets `current_video_id` so the indexer routes them. Multi-track lifecycle (Car / Person / Bicycle, motion drift, spawn/despawn), 13-part DeepStream object format. `--ensure-upload` stubs an `uploads` row in Postgres so the detail page is reachable without going through the UI uploader. `--scenario collision` scripts a two-vehicle collision (overlapping bboxes + simultaneous velocity collapse + sustained stop, IOU peak ≈ 0.38) so the rule pack in `incident_worker.py` can be exercised end-to-end without GPU time. Runs inside the dev backend:
 
 ```bash
 docker compose -f docker-compose.dev.yml exec backend \
   python /app/tools/synthetic_mdx_publisher.py \
   --video-id synth-1 --ensure-upload --duration 20 --rate 200
+
+# Exercise the rule pack:
+docker compose -f docker-compose.dev.yml exec backend \
+  python /app/tools/synthetic_mdx_publisher.py \
+  --video-id synth-collision --ensure-upload \
+  --duration 20 --fps 30 --rate 500 --scenario collision
+curl -X POST http://localhost:8080/api/uploads/synth-collision/analyze
+curl http://localhost:8080/api/uploads/synth-collision/incidents
 ```
+
+Backend unit tests (`backend/tests/test_incident_worker.py`, 4 tests) verify rule firing, class-name normalization, signal computation, and stale-row cleanup. Run with `python -m unittest backend.tests.test_incident_worker` from the repo root.
 
 ---
 
@@ -85,12 +99,12 @@ docker compose -f docker-compose.dev.yml exec backend \
 
 ## Next steps
 
-See ['V1_PLAN.md`](V1_PLAN.md) for the burn list. Phases 1 (rebrand) and 2 (Uploads UI + detail page + Postgres + event indexer) are landed. Burn list item #1 (synthetic publisher) is landed. Up next, in priority order:
+See [`V1_PLAN.md`](V1_PLAN.md) for the burn list. Landed: Phases 1 (rebrand), 2 (Uploads UI + detail page + Postgres + event indexer), 5 (deploy runbook + Brev validation), 7 (rule-based incident detection — schema, worker, API, Scenarios tab, scrubber band, KPI tile). Most of Phase 3 (healthchecks + `/healthz` + `file-loop=0`) is in. Up next, in priority order:
 
-1. Dashboard (`/`) OpsVision palette pass.
-2. Phase 3 backend hardening: `file-loop=0` in `deepstream/config/perception-config.txt`, healthchecks across services, TRT engine cache as a named volume, drop `redis-commander`, refresh `.env.example`.
-3. Phase 4 repo rename: `git mv vss-rt-cv-pot aims`.
-4. Phase 5 deploy runbook (`aims/docs/deploy.md`) + cold deploy on a fresh Brev VM.
-5. Phase 6 demo acceptance.
+1. **Phase 8 spike (#24)** — pull `nvcr.io/nim/nvidia/cosmos-reason2-2b:latest` on the dev VM, document endpoint contract / VRAM peak / cold-start time / Ampere compatibility, write `docs/cosmos-spike.md`. Gates the rest of Phase 8.
+2. Phase 8 implementation — `vlm_*` columns on `incidents`, `cosmos` service in compose, `vlm_validator.py` worker, VLM pill / Why panel / filter chips on Scenarios tab, dashboard rule-vs-VLM split.
+3. Remaining Phase 3 items — TRT engine cache as a named volume (drops the `chmod -R 777 data/models` step + matching gotcha when this lands), drop `redis-commander` from prod compose, refresh `.env.example`.
+4. Phase 4 repo rename: `git mv vss-rt-cv-pot aims`.
+5. Phase 6 demo acceptance + before/after screenshots + `docs/demo-script.md`.
 
-Branch: `feat/aims-rebrand`. Two commits ahead of origin (push pending auth setup): `a5fc5fe` (synthetic publisher) and `5d3a742` (viewport-bounded layout + theme toggle).
+Branch: `main`. Recent commits: `be923e6` (V1 plan), `04a1a4a` (frontend Scenarios + scrubber band + KPI), `2b4bcca` (backend incidents schema + rule worker + analyze endpoint), `d766ea8` (compose healthchecks + `/healthz`).

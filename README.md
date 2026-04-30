@@ -103,10 +103,10 @@ Open `http://<HOST_IP>:3000`.
 
 **`/uploads/[video_id]`** — detail page for one upload:
 
-- HTML5 `<video>` + a custom scrubber overlay that draws per-track detection bands keyed by class colour
+- HTML5 `<video>` + a custom scrubber overlay that draws per-track detection bands keyed by class colour, plus an incident band layer (severity-coloured, click-to-seek, tooltip with rule label)
 - "Detected events" panel on the right with two tabs:
   - **Events** — flat list of tracks with class, max confidence, duration, first bbox; click to seek
-  - **Scenarios** — disabled in v1; semantic interpretation of events lands in v1.5
+  - **Scenarios** — rule-detected incidents (`vehicle_collision`, `ped_impact`, `stationary_vehicle`, `mass_stop`) with severity, confidence, time range, involved track chips, and a "Jump to" button. Phase 8 layers Cosmos-Reason 2 VLM verdicts onto the same cards.
 
 **Theme toggle** — Sun/Moon button top-right of the header. Persisted to `localStorage` as `aims-theme`. Pre-hydration script sets the class on `<html>` before paint, so no FOUC.
 
@@ -135,6 +135,18 @@ docker compose -f docker-compose.dev.yml exec backend \
 
 `--ensure-upload` stubs an `uploads` row in Postgres so `/uploads/synth-1` works without going through the UI uploader. `--rate 200` backfills faster than realtime; default is `--rate = --fps` (realtime).
 
+`--scenario collision` scripts a two-vehicle collision (overlapping bboxes + simultaneous velocity collapse + sustained stop) so the rule pack in `incident_worker.py` can be exercised end-to-end without GPU time. After publishing, `POST /api/uploads/<id>/analyze` runs the rules and `GET /api/uploads/<id>/incidents` returns the detected incident.
+
+```bash
+docker compose -f docker-compose.dev.yml exec backend \
+  python /app/tools/synthetic_mdx_publisher.py \
+  --video-id synth-collision --ensure-upload \
+  --duration 20 --fps 30 --rate 500 --scenario collision
+
+curl -X POST http://localhost:8080/api/uploads/synth-collision/analyze
+curl http://localhost:8080/api/uploads/synth-collision/incidents
+```
+
 ---
 
 ## Architecture
@@ -151,6 +163,8 @@ FastAPI backend (:8080)
     │ GET  /api/uploads/:id      → single row + counts
     │ DEL  /api/uploads/:id      → ON DELETE CASCADE drops events
     │ GET  /api/uploads/:id/events?group=tracks|none
+    │ GET  /api/uploads/:id/incidents       (rule-detected incidents for the clip)
+    │ POST /api/uploads/:id/analyze         (re-run rule pack, returns incidents_found)
     │ GET  /api/uploads/:id/playback        (FileResponse from disk)
     │ WS   /ws/events            (live detections for the dashboard overlay)
     ▼
@@ -168,10 +182,21 @@ Redis (:6379)
          │ (parses pipe-delimited objects, computes t_seconds via fps lookup)
          ▼
        Postgres 16 (aims db)
-         │ uploads (video_id PK, prompt, duration_s, w/h, fps, size, uploaded_at)
-         │ events  (BIGSERIAL, video_id FK CASCADE, track_id, frame_id,
-         │          t_seconds, class, confidence, bbox_x1..y2)
+         │ uploads    (video_id PK, prompt, duration_s, w/h, fps, size, uploaded_at)
+         │ events     (BIGSERIAL, video_id FK CASCADE, track_id, frame_id,
+         │             t_seconds, class, confidence, bbox_x1..y2)
+         │ incidents  (UUID PK, video_id FK CASCADE, rule_id, severity,
+         │             confidence, t_start_s, t_end_s, frame_start, frame_end,
+         │             track_ids, bbox_union JSONB, metadata JSONB)
          │ runs schema.sql at backend startup
+            ▲
+            │ POST /api/uploads/:id/analyze
+            │
+       incident_worker.py
+         │ reads events, computes per-track + pairwise signals (velocity,
+         │ velocity-drop, IOU overlap, co-stop), fires rules:
+         │   vehicle_collision · ped_impact · stationary_vehicle · mass_stop
+         │ ON CONFLICT upsert keyed on (video_id, rule_id, t_start_s, track_ids)
 ```
 
 Each `mdx-raw` event payload looks like:
@@ -188,7 +213,7 @@ Object string format: `track_id | x1 | y1 | x2 | y2 | class | # | … | confiden
 
 ## Known issues
 
-**TRT engine compile (~3.5 min on first run, ~5 s warm).** Normal — RT-DETR ONNX compiles to a TRT FP16 engine on first boot and persists in `data/models/`. Watch `docker compose logs -f vss-rt-cv` for "Starting DeepStream" before uploading. Phase 3 will pin the cache to a named volume to survive container rebuilds.
+**TRT engine compile (~3.5 min on first run, ~5 s warm).** Normal — RT-DETR ONNX compiles to a TRT FP16 engine on first boot and persists in `data/models/`. Watch `docker compose logs -f vss-rt-cv` for "Starting DeepStream" before uploading. A future Phase 3 item pins the cache to a named volume to survive container rebuilds.
 
 **`libnvds_redis_proto.so` may be missing.** The vss-rt-cv image ships with Kafka as the default broker. If the Redis proto library is absent, detection events won't reach Redis. Verify:
 

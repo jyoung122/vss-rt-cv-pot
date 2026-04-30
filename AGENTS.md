@@ -14,11 +14,17 @@ Not an integration target anymore. POT is the app.
 backend/            FastAPI + asyncpg + redis. Lifespan starts the event indexer.
   app/main.py       routes + lifespan
   app/db.py         asyncpg pool, runs schema.sql at startup
-  app/schema.sql    uploads + events tables (raw SQL, no ORM)
+  app/schema.sql    uploads + events + incidents tables (raw SQL, no ORM)
   app/upload.py     ffprobe metadata, INSERT uploads, sets current_video_id
   app/uploads_list.py   GET/DELETE /api/uploads, GET /api/uploads/:id/events
   app/event_indexer.py  XREADGROUP("indexer/indexer-1") → Postgres events
+  app/incidents.py      GET /api/uploads/:id/incidents, POST /api/uploads/:id/analyze
+  app/incident_worker.py rule pack: vehicle_collision · ped_impact ·
+                          stationary_vehicle · mass_stop. Reads events, ON CONFLICT
+                          upsert keyed on (video_id, rule_id, t_start_s, track_ids)
+                          so Phase 8 vlm_* columns survive re-analyze.
   app/playback.py   GET /api/uploads/:id/playback (FileResponse from disk)
+  tests/            unit tests (run: python -m unittest backend.tests.<name>)
 
 frontend/           Next.js 15.3 + React 19 + TS, Tailwind v4
   src/app/uploads/page.tsx              list + drag-drop upload
@@ -54,8 +60,9 @@ Reference (don't trust as current state): [`FUTURE_STATE_POT_ARCHIVED.md`](FUTUR
 - Background work runs via `asyncio.create_task` in the FastAPI lifespan, not threads.
 
 **Vocabulary lock**
-- **Event** = raw detection (class, confidence, bbox, frame).
-- **Scenario** = semantic interpretation over time (VLM or rules). Deferred to v1.5. The Scenarios tab exists but is `disabled`.
+- **Event** = raw detection (class, confidence, bbox, frame). One row per object per frame.
+- **Incident** = rule-detected behavioral pattern over time (collision, ped impact, stationary vehicle, traffic anomaly). Lives in the `incidents` table; produced by `incident_worker.py`. Phase 8 layers Cosmos-Reason 2 VLM verdicts on the same rows.
+- **Scenario** = the UI surface for incidents on the detail page. The tab is live (no longer disabled).
 
 **Other**
 - No auth (dropped in the pivot). Don't add login flows.
@@ -83,6 +90,16 @@ docker compose -f docker-compose.dev.yml exec backend \
   python /app/tools/synthetic_mdx_publisher.py \
   --video-id synth-1 --ensure-upload --duration 20 --rate 200
 # → visit http://localhost:3000/uploads/synth-1
+```
+
+Exercise the rule pack with a scripted collision (no GPU needed):
+```bash
+docker compose -f docker-compose.dev.yml exec backend \
+  python /app/tools/synthetic_mdx_publisher.py \
+  --video-id synth-collision --ensure-upload \
+  --duration 20 --fps 30 --rate 500 --scenario collision
+curl -X POST http://localhost:8080/api/uploads/synth-collision/analyze
+# → {"incidents_found": 1+}
 ```
 
 ## Where to look first
