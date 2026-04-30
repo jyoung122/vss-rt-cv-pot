@@ -37,7 +37,7 @@ Phase 3  Backend hardening for prod-ish            (½ day)
 Phase 4  Repo rename: vss-rt-cv-pot → aims         (½ day)
 Phase 5  GPU VM deploy + runbook                    (½ day)
 Phase 6  Demo acceptance                            (½ day)
-Phase 7  Incident detection — rules (Phase A)      (1½ days)
+Phase 7  Incident detection — rules (Phase A)      (1½ days)    ✅
 Phase 8  Cosmos-Reason 2 validation (Phase B)      (2½ days)
 ```
 
@@ -102,13 +102,13 @@ What we're actually working on now, in order. Tick as we go.
 
 Rule-only worker that reads the existing `events` table, runs accident heuristics in pixel/track space, and writes to a new `incidents` table. Demo-viable on the A6000 alone. Output schema mirrors `mdx-incidents` so Cosmos can layer on top without a migration.
 
-17. ⏳ `incidents` table + migration (`backend/sql/incidents.sql`). Columns: `id`, `video_id`, `rule_id`, `severity`, `confidence`, `t_start_s`, `t_end_s`, `frame_start`, `frame_end`, `track_ids`, `bbox_union` JSONB, `metadata` JSONB, `created_at`. Index `(video_id, t_start_s)`.
-18. ⏳ Rule worker `backend/app/incident_worker.py` — per-track signals (velocity, velocity-drop, stationary duration, bbox-aspect change) + pairwise signals (IOU overlap, centroid proximity, co-stop). Rule pack: `vehicle_collision`, `ped_impact`, `stationary_vehicle`, `mass_stop`. Idempotent upserts. Triggered on event-indexer end-of-stream or via `POST /api/uploads/:id/analyze`.
-19. ⏳ API: `GET /api/uploads/:id/incidents`, `POST /api/uploads/:id/analyze`.
-20. ⏳ Scenarios tab rewired to real data — incident cards, severity badges, "Jump to" seeks the player to `t_start_s`, track chips link back to Events tab.
-21. ⏳ Scrubber band layer — incidents render as a colored band on the existing scrubber alongside track bands.
-22. ⏳ Dashboard KPI: "Incidents flagged" tile.
-23. ⏳ Extend `tools/synthetic_mdx_publisher.py` with a scripted collision pattern so the rule pack can be exercised without GPU time.
+17. ✅ `incidents` table added to `backend/app/schema.sql` with the spec columns plus a `(video_id, rule_id, t_start_s, track_ids)` unique dedup index. Commit `2b4bcca`.
+18. ✅ Rule worker `backend/app/incident_worker.py` — bisect-windowed per-track signals + pairwise IOU/proximity/co-stop. All four rules implemented; ON CONFLICT upsert keyed on the dedup index so Phase 8 vlm_* columns will survive re-analyze. Triggered via `POST /api/uploads/:id/analyze` (event-indexer end-of-stream auto-trigger deferred to a follow-up). Commit `2b4bcca`.
+19. ✅ API: `GET /api/uploads/:id/incidents` and `POST /api/uploads/:id/analyze` in `backend/app/incidents.py`. JSONB columns decoded to dict via `_jsonb()` helper; future cleanup is a `set_type_codec` on pool init. Commit `2b4bcca`.
+20. ✅ Scenarios tab rewired to `GET /api/uploads/:id/incidents`. Cards use `Card`/`Badge`/`Button`/`Skeleton`/`Tooltip`; severity → CSS-var color (`--danger-500` / `--warn-500` / `--ink-400`); "Jump to" seek + track chips link back to Events. Tab trigger shows count badge. Commit `04a1a4a`.
+21. ✅ Scrubber band layer — thin severity-coloured bands above the existing track bands; click-to-seek; tooltip with rule label + time range. Commit `04a1a4a`.
+22. ✅ Dashboard KPI: "Incidents flagged" tile alongside the existing analytics overview. Counts summed client-side across uploads in v1 (small N); a `GET /api/incidents/count` aggregate would be a one-liner swap later. Commit `04a1a4a`.
+23. ✅ `tools/synthetic_mdx_publisher.py --scenario collision` scripts a two-vehicle collision (IOU peak ≈ 0.38). Module made test-importable via lazy redis/asyncpg imports. Backend unit tests in `backend/tests/test_incident_worker.py` (4/4 passing) verify rule firing, class-name normalization, and stale-row cleanup. Commit `2b4bcca`.
 
 **Phase 8 — Cosmos-Reason2-2B VLM validation (Phase B)** (~2½ days)
 
