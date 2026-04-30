@@ -130,6 +130,39 @@
   --sidebar-ring: var(--accent-400);
 }
 
+/* Light theme — values from canonical OpsVision tokens.css spec */
+html.light {
+  --bg:            #f3f5f9;
+  --surface-1:     #ffffff;
+  --surface-2:     #f7f9fc;
+  --surface-3:     #eef1f6;
+  --fg-1:          #0f141c;
+  --fg-2:          #232b38;
+  --fg-3:          #455061;
+  --fg-4:          #64718a;
+
+  --background:    #f3f5f9;
+  --foreground:    #0f141c;
+  --card:          #ffffff;
+  --card-foreground: #0f141c;
+  --popover:       #ffffff;
+  --popover-foreground: #0f141c;
+  --secondary:     #f7f9fc;
+  --secondary-foreground: #0f141c;
+  --muted:         #f7f9fc;
+  --muted-foreground: #455061;
+  --accent:        #eef1f6;
+  --accent-foreground: #0f141c;
+  --border:        #dce1ea;
+  --input:         #dce1ea;
+
+  --sidebar:       #ffffff;
+  --sidebar-foreground: #0f141c;
+  --sidebar-accent: #f7f9fc;
+  --sidebar-accent-foreground: #0f141c;
+  --sidebar-border: #dce1ea;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

@@ -1,4 +1,8 @@
-# VSS-RT-CV POT — Future State
+# VSS-RT-CV POT — Future State (ARCHIVED)
+
+> **ARCHIVED** — predates the "POT becomes the app" pivot. Useful as DeepStream
+> reference material; not a description of the current direction. See `README.md`
+> and `../V1_PLAN.md` for the current state and roadmap.
 
 Goal: extract the working perception pipeline as a service that plugs into a larger app, drop the demo scaffolding, and add the analytics needed for accident detection.
 
