@@ -20,23 +20,28 @@
 | D6 | Always-on GPU VM (Brev / AWS). |
 | D7 | TrafficCamNet 4 classes (car, bicycle, person, road_sign) sufficient. |
 | D8 | IOU tracker stays. |
-| D9 | NGC creds via env file (v1 demo). |
+| D9 | NGC creds via env file (v1 demo). Same `NGC_CLI_API_KEY` covers DeepStream, TrafficCamNet, and the Cosmos-Reason2-2B NIM image pull. |
 | D10 | `intelligent-video-monitoring/` repo frozen after asset harvest. Not deleted. |
+| D11 | **Demo punchline = traffic-accident detection.** Behavioral rule pack (track-based) + Cosmos-Reason 2 VLM validation, both in scope for v1. NVIDIA's upstream behavior-analytics microservice is *not* adopted — its incident vocabulary (tripwire/ROI/proximity) doesn't include collisions, and its calibration model doesn't apply to upload clips. Custom worker writes to a new `incidents` table; output schema mirrors `mdx-incidents` shape so a future swap is non-disruptive. |
+| D12 | **Cosmos-Reason2-2B self-hosted on the demo GPU via NIM.** Image: `nvcr.io/nim/nvidia/cosmos-reason2-2b:latest`. Pulled at deploy time with `NGC_CLI_API_KEY`. Exposes its endpoint on `vss-net`; backend reaches it as `http://cosmos:<port>/v1` (port + exact API shape confirmed in spike #24). Clip handoff via shared `${DATA_DIR}/incidents` volume (read-only into the Cosmos container) when the API supports a file path; multipart upload otherwise. |
+| D13 | **GPU plan.** Phase A (rule-only incidents) ships on the current A6000 48 GB. Phase B (Cosmos-Reason2-2B validation) **also fits comfortably on the A6000** — 2B params is well under the 48 GB budget alongside DeepStream's ~3 GB, so dev can proceed without GPU upgrade. Upgrade to **RTX 6000 Pro Blackwell 96 GB** or **L40S 48 GB** is no longer gated by VRAM; it's a perf/headroom decision and remains an hours-not-days Brev provision when needed for the demo. |
 
 ---
 
 ## Phases
 
 ```
-Phase 1  Brand harvest + frontend rebrand    (1 day)
-Phase 2  UI improvements (lift IVM shell)    (1–2 days)
-Phase 3  Backend hardening for prod-ish      (½ day)
-Phase 4  Repo rename: vss-rt-cv-pot → aims   (½ day)
-Phase 5  GPU VM deploy + runbook              (½ day)
-Phase 6  Demo acceptance                      (½ day)
+Phase 1  Brand harvest + frontend rebrand          (1 day)         ✅
+Phase 2  UI improvements (lift IVM shell)          (1–2 days)      ✅
+Phase 3  Backend hardening for prod-ish            (½ day)
+Phase 4  Repo rename: vss-rt-cv-pot → aims         (½ day)
+Phase 5  GPU VM deploy + runbook                    (½ day)
+Phase 6  Demo acceptance                            (½ day)
+Phase 7  Incident detection — rules (Phase A)      (1½ days)
+Phase 8  Cosmos-Reason 2 validation (Phase B)      (2½ days)
 ```
 
-Total: ~3–5 days.
+Total: ~7–9 days.
 
 ---
 
@@ -93,20 +98,49 @@ What we're actually working on now, in order. Tick as we go.
 15. ⏳ Capture before/after screenshots for the demo deck.
 16. ⏳ Write the demo script (`docs/demo-script.md`) — three sample clips, expected timing, fallback if a stage fails.
 
+**Phase 7 — Incident detection, rules (Phase A)** (~1½ days)
+
+Rule-only worker that reads the existing `events` table, runs accident heuristics in pixel/track space, and writes to a new `incidents` table. Demo-viable on the A6000 alone. Output schema mirrors `mdx-incidents` so Cosmos can layer on top without a migration.
+
+17. ⏳ `incidents` table + migration (`backend/sql/incidents.sql`). Columns: `id`, `video_id`, `rule_id`, `severity`, `confidence`, `t_start_s`, `t_end_s`, `frame_start`, `frame_end`, `track_ids`, `bbox_union` JSONB, `metadata` JSONB, `created_at`. Index `(video_id, t_start_s)`.
+18. ⏳ Rule worker `backend/app/incident_worker.py` — per-track signals (velocity, velocity-drop, stationary duration, bbox-aspect change) + pairwise signals (IOU overlap, centroid proximity, co-stop). Rule pack: `vehicle_collision`, `ped_impact`, `stationary_vehicle`, `mass_stop`. Idempotent upserts. Triggered on event-indexer end-of-stream or via `POST /api/uploads/:id/analyze`.
+19. ⏳ API: `GET /api/uploads/:id/incidents`, `POST /api/uploads/:id/analyze`.
+20. ⏳ Scenarios tab rewired to real data — incident cards, severity badges, "Jump to" seeks the player to `t_start_s`, track chips link back to Events tab.
+21. ⏳ Scrubber band layer — incidents render as a colored band on the existing scrubber alongside track bands.
+22. ⏳ Dashboard KPI: "Incidents flagged" tile.
+23. ⏳ Extend `tools/synthetic_mdx_publisher.py` with a scripted collision pattern so the rule pack can be exercised without GPU time.
+
+**Phase 8 — Cosmos-Reason2-2B VLM validation (Phase B)** (~2½ days)
+
+Self-hosted `nvcr.io/nim/nvidia/cosmos-reason2-2b:latest` confirms / rejects / refines rule-detected incidents. Each incident gets a second pass; the UI shows both signals; the demo headline is "VLM-confirmed incidents." Fits on A6000 alongside DeepStream — no GPU upgrade required to start.
+
+24. ⏳ **Spike** — pull `nvcr.io/nim/nvidia/cosmos-reason2-2b:latest` on the dev VM with `NGC_CLI_API_KEY`. Document: exposed port, exact request/response schema (OpenAI-compatible chat? custom?), accepted video input form (file path via shared volume vs multipart vs URL), max video length / fps, recommended cache-volume layout, cold-start time (weight load), steady-state VRAM. Confirm A6000 (Ampere) is supported — NVIDIA's reference platforms are H100/A100/Blackwell/Hopper; Ampere should work but isn't listed. Confirm the model handles `<think>…</think>` chain-of-thought prompting, since Cosmos-Reason was post-trained on that format. Output: a doc in `docs/cosmos-spike.md`, not code. Gates everything below.
+25. ⏳ `incidents.vlm_*` columns: `vlm_status`, `vlm_verdict`, `vlm_reasoning`, `vlm_confidence`, `vlm_model`, `vlm_clip_path`, `vlm_latency_ms`, `vlm_at`. Partial index on `vlm_status='pending'`.
+26. ⏳ `cosmos` service in `docker-compose.yml` — `image: nvcr.io/nim/nvidia/cosmos-reason2-2b:latest`, GPU reservation (shares GPU 0 with DeepStream), `NGC_CLI_API_KEY` env, named volume for the NIM model cache, read-only mounts for `${DATA_DIR}/videos` + `${DATA_DIR}/incidents`, healthcheck with multi-minute `start_period` for first-boot weight load. Volume layout and exact env var names confirmed in spike #24.
+27. ⏳ VLM validator worker `backend/app/vlm_validator.py` — picks up pending incidents (`FOR UPDATE SKIP LOCKED`), extracts clip slice via ffmpeg with configurable padding, calls Cosmos with structured JSON-output prompt per rule type, parses verdict, writes back. `VLM_ENABLED=false` → `vlm_status='skipped'` fallback.
+28. ⏳ UI: VLM pill on each incident card (`Confirmed` / `Rejected` / `Uncertain` / `Pending` / `Error`), expandable "Why" panel with reasoning + involved-objects + "Watch validated clip" button, filter chips at the top of the Scenarios tab.
+29. ⏳ Dashboard KPI split: `Rule-detected` vs `VLM-confirmed`.
+30. ⏳ `docs/deploy.md` + `docs/gotchas.md` — Cosmos cold-start (multi-minute weight load), cache volume, GPU sharing notes (DeepStream + Cosmos co-resident on GPU 0), quantized-variant selection per VRAM tier.
+
 ### Deferred (not blocking v1 demo)
 - ⏸ `/events` global view (cross-upload filtering)
 - ⏸ `/settings` page real content
 - ⏸ Per-clip thumbnails (`ffprobe -ss` frame extraction)
-- ⏸ NvDCF tracker swap (currently IOU)
-- ⏸ Behavior-analytics rule retune (whole IVM analytics path was dropped from v1 anyway)
-- ⏸ Real Scenarios tab on detail page (VLM/rule-based — v1.5)
+- ⏸ NvDCF tracker swap (currently IOU) — would reduce track-ID swap false positives in the rule pack
 - ⏸ S3/MinIO for video bytes (currently local disk — fine for single-VM demo)
 - ⏸ Auth (Supabase JWT or simpler) — v1.5 per locked decisions
+- ⏸ Live (non-batch) incident detection on RTSP streams — current design is per-upload batch
+- ⏸ GDINO open-vocab detection driven by the upload-page prompt textarea — v1.5
 
 ### Risk watch
 - ✅ ~~The full pipeline (DeepStream → indexer → Postgres → UI) has never run together.~~ Validated 2026-04-30 on a Brev A6000: 16,526 events / 70 tracks / 4 classes (car 10,891 · road_sign 2,386 · person 2,204 · bicycle 1,045) on `115_and_HVP.mp4` (148.8 s); `max(t_seconds)=148.67` matched clip duration. API endpoints (`/api/uploads`, `/api/uploads/:id/events?group=tracks`) returned correct shape. Cold-deploy traps catalogued in [`docs/gotchas.md`](docs/gotchas.md).
 - TRT engine cold build (~3.5min) is one-time-per-arch — document in `deploy.md` so the first deploy doesn't look broken.
 - ✅ ~~ffprobe inside the slim Python image — not yet exercised.~~ Exercised 2026-04-30; parsed 1280×720 @ 15 fps cleanly on upload.
+- **Rule-pack false positives** — IOU tracker drops/swaps during occlusion will look like collisions. Mitigation: require sustained overlap (≥3 frames) + co-stop, not overlap alone. NvDCF swap is the v1.5 fix.
+- **Pixel-space units** — without per-clip calibration, velocity is in px/s and depends on camera angle. Thresholds will need per-clip tuning during demo prep. Document as a known limitation.
+- **VLM hallucination** — Cosmos may confidently confirm incidents that didn't happen. Combined-confidence formula caps the VLM contribution and the UI always renders rule confidence alongside the VLM pill — never let VLM-only verdicts present without rule context.
+- **GPU co-residency (Phase 8)** — DeepStream + Cosmos-Reason2-2B sharing GPU 0 on A6000 48 GB. 2B at BF16 ≈ 4–6 GB plus KV cache; DeepStream ≈ 3 GB; comfortable headroom. Confirm steady-state VRAM peak in the spike (#24). A6000 is Ampere; NVIDIA lists Hopper/Blackwell as tested platforms — Ampere support is the spike's primary risk to confirm before committing.
+- **Cosmos cold start** — multi-minute weight load on container start; healthcheck `start_period` must reflect this. Cache volume keeps subsequent restarts fast.
 
 ---
 
