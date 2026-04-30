@@ -1,6 +1,10 @@
-# vss-rt-cv-pot: Video Upload → RTSP → RT-DETR Detection Events
+# SSI AIMS — AI Monitoring System
 
-End-to-end proof of concept: upload video → NVStreamer replays as RTSP → vss-rt-cv (DeepStream with RT-DETR/TrafficCamNet) runs perception → detection events stream to Redis Streams → WebSocket → browser event feed.
+> The repository directory is still `vss-rt-cv-pot/` and will be renamed to `aims/` after Phase 1–3 of the v1 ship plan land. See [`../V1_PLAN.md`](../V1_PLAN.md).
+
+Real-time computer vision monitoring: upload video → DeepStream perception (RT-DETR / TrafficCamNet) → detection + tracking events stream to Redis → WebSocket → browser overlay + event feed.
+
+**Original POT description (still accurate technically):** end-to-end proof of concept: upload video → NVStreamer replays as RTSP → vss-rt-cv (DeepStream with RT-DETR/TrafficCamNet) runs perception → detection events stream to Redis Streams → WebSocket → browser event feed.
 
 **Target:** Brev RTX PRO 6000 BW instance. Works on any Docker+GPU-enabled host.
 

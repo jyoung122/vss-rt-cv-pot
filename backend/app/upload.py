@@ -2,12 +2,15 @@ import os
 import re
 import asyncio
 import json
+import time
+import subprocess
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, HTTPException
+from fastapi import APIRouter, UploadFile, Form, HTTPException
 import httpx
 
 from app.sdr import remove_active_stream, register_stream
 from app.redis_client import clear_stream
+from app.db import get_pool
 
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 HOST_IP = os.getenv("HOST_IP", "localhost")
@@ -86,8 +89,56 @@ async def _update_vss_rt_cv_stream(rtsp_url: str) -> None:
     await _restart_container("vss-rt-cv")
 
 
+def _probe_video(path: Path) -> tuple[float | None, int | None, int | None, float | None]:
+    """Run ffprobe on the file; return (duration_s, width, height, fps). All may be None."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "quiet",
+                "-print_format", "json",
+                "-show_format", "-show_streams",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return None, None, None, None
+        info = json.loads(result.stdout)
+    except Exception as e:
+        print(f"ffprobe error: {e}")
+        return None, None, None, None
+
+    duration_s: float | None = None
+    width: int | None = None
+    height: int | None = None
+    fps: float | None = None
+
+    try:
+        duration_s = float(info["format"]["duration"])
+    except (KeyError, ValueError, TypeError):
+        pass
+
+    for stream in info.get("streams", []):
+        if stream.get("codec_type") == "video":
+            try:
+                width = int(stream["width"])
+                height = int(stream["height"])
+            except (KeyError, ValueError, TypeError):
+                pass
+            try:
+                num, den = stream["avg_frame_rate"].split("/")
+                fps = float(num) / float(den)
+            except Exception:
+                pass
+            break
+
+    return duration_s, width, height, fps
+
+
 @router.post("/api/upload")
-async def upload_video(file: UploadFile):
+async def upload_video(file: UploadFile, prompt: str | None = Form(default=None)):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
 
@@ -98,7 +149,12 @@ async def upload_video(file: UploadFile):
     video_dir = Path(DATA_DIR) / "videos"
     video_dir.mkdir(parents=True, exist_ok=True)
 
-    file_path = video_dir / file.filename
+    # Generate a server-side unique video_id from the stem + timestamp
+    raw_stem = Path(file.filename).stem
+    safe_stem = re.sub(r"[^a-zA-Z0-9_-]", "_", raw_stem)
+    video_id = f"{safe_stem}-{int(time.time())}"
+
+    file_path = video_dir / f"{video_id}{ext}"
     written = 0
     with open(file_path, "wb") as f:
         while chunk := await file.read(1024 * 1024):
@@ -109,22 +165,58 @@ async def upload_video(file: UploadFile):
         file_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail="File is empty")
 
-    video_id = Path(file.filename).stem
+    # Probe video metadata
+    duration_s, width, height, fps = _probe_video(file_path)
 
-    # Drop events from any prior video so the feed starts fresh on this upload.
-    await clear_stream(REDIS_URL)
+    # Insert into Postgres
+    pool = get_pool()
+    await pool.execute(
+        """
+        INSERT INTO uploads (video_id, original_filename, prompt, duration_s, width, height, fps, size_bytes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        """,
+        video_id,
+        file.filename,
+        prompt,
+        duration_s,
+        width,
+        height,
+        fps,
+        written,
+    )
+
+    # Set current_video_id in Redis for the event indexer
+    import redis.asyncio as aioredis
+    r = aioredis.from_url(REDIS_URL, decode_responses=True)
+    async with r:
+        await r.set("current_video_id", video_id)
+
+    stream_url = f"file:///data/videos/{video_id}{ext}"
+
+    # Write stream URL for ds-start.sh
+    url_file = Path(DATA_DIR) / "videos" / "current_stream_url.txt"
+    url_file.write_text(stream_url)
+
     await remove_active_stream()
-
-    # NVStreamer 3.1.0 metadata discovery is broken (Container/videoCodec stay empty,
-    # so RTSP DESCRIBE 404s). Until that is fixed, point DeepStream at the file directly
-    # via uridecodebin (perception-config.txt source0 type=3 + file:// URI).
-    stream_url = f"file:///data/videos/{file.filename}"
-
     await register_stream(video_id, stream_url)
     await _update_vss_rt_cv_stream(stream_url)
 
+    # Fetch the row to return canonical UploadRecord
+    row = await pool.fetchrow(
+        "SELECT * FROM uploads WHERE video_id=$1", video_id
+    )
+
     return {
-        "video_id": video_id,
-        "stream_url": stream_url,
+        "video_id": row["video_id"],
+        "original_filename": row["original_filename"],
+        "prompt": row["prompt"],
+        "duration_s": row["duration_s"],
+        "width": row["width"],
+        "height": row["height"],
+        "fps": row["fps"],
+        "size_bytes": row["size_bytes"],
+        "uploaded_at": row["uploaded_at"].isoformat(),
         "playback_url": f"/api/video/{video_id}",
+        "event_count": 0,
+        "track_count": 0,
     }

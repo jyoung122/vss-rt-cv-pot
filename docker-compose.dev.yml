@@ -1,0 +1,71 @@
+# Dev stack — backend + redis + postgres only. No GPU, no NGC pull, no vss-rt-cv.
+#
+# Use this for frontend / API iteration when you don't need DeepStream
+# perception running. Uploads will land on disk and show in /api/uploads,
+# but no detection events flow into Redis (the WS feed stays empty and
+# the dashboard's live overlay won't draw boxes).
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up
+#
+# Frontend: run separately for fast HMR
+#   cd frontend && npm install && npm run dev
+# (proxies /api/* and /ws/* to localhost:8080 — see frontend/next.config.js)
+#
+# This file is fully self-contained — it does NOT extend docker-compose.yml.
+
+services:
+  redis:
+    image: redis:8.2.2-alpine
+    container_name: aims-redis-dev
+    # No host port binding — backend reaches redis on the compose network.
+    # Uncomment if you need redis-cli from the host (and the host's 6379 is free):
+    # ports:
+    #   - "6379:6379"
+    networks:
+      - aims-dev
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: aims-postgres-dev
+    environment:
+      POSTGRES_USER: aims
+      POSTGRES_PASSWORD: aims
+      POSTGRES_DB: aims
+    volumes:
+      - aims-pg-data:/var/lib/postgresql/data
+    networks:
+      - aims-dev
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: aims-backend-dev
+    ports:
+      - "8080:8080"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DATA_DIR: /data
+      DATABASE_URL: postgresql://aims:aims@postgres:5432/aims
+      # SDR / NVStreamer aren't running in dev; calls fail-and-warn,
+      # uploads still succeed.
+      SDR_URL: http://sdr-disabled:4001
+      NVSTREAMER_URL: http://nvstreamer-disabled:30000
+      HOST_IP: localhost
+    volumes:
+      - ${DATA_DIR:-./data}/videos:/data/videos
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - aims-dev
+    restart: unless-stopped
+
+networks:
+  aims-dev:
+    driver: bridge
+
+volumes:
+  aims-pg-data: {}
