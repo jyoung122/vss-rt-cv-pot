@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import {
   ArrowUpRight,
   Check,
@@ -18,39 +19,14 @@ import {
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
-
-type UploadItem = {
-  video_id: string
-  filename: string
-  size_bytes: number
-  uploaded_at: string
-  playback_url: string
-}
+import {
+  type UploadRecord,
+  formatBytes,
+  formatDurationSize,
+  formatUploaded,
+} from '@/lib/uploads'
 
 const ACCEPT = '.mp4,.mkv'
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`
-  const kb = bytes / 1024
-  if (kb < 1024) return `${kb.toFixed(1)} KB`
-  const mb = kb / 1024
-  if (mb < 1024) return `${mb.toFixed(1)} MB`
-  return `${(mb / 1024).toFixed(2)} GB`
-}
-
-function formatUploaded(iso: string) {
-  const d = new Date(iso)
-  return d
-    .toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: false,
-    })
-    .replace(',', ' ·')
-}
 
 const SUGGESTIONS = [
   'Traffic incidents',
@@ -64,7 +40,7 @@ const STAGES = ['Upload', 'Ingest', 'CV analysis', 'Index events'] as const
 const STAGE_LABELS = ['UPLOAD', 'INGEST', 'CV ANALYSIS', 'INDEX'] as const
 
 export default function UploadsPage() {
-  const [items, setItems] = useState<UploadItem[]>([])
+  const [items, setItems] = useState<UploadRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -81,7 +57,7 @@ export default function UploadsPage() {
 
   // Preview / delete dialogs
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
-  const [pendingDelete, setPendingDelete] = useState<UploadItem | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<UploadRecord | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -104,9 +80,6 @@ export default function UploadsPage() {
   }, [refresh])
 
   // After upload completes, advance simulated post-upload stages
-  // (POT does run perception in the background but does not expose
-  //  ingest / analyze / index milestones; show them as a forward-only
-  //  sequence so the user sees progress).
   useEffect(() => {
     if (stage <= 0 || stage >= 3) return
     stageTimer.current = setTimeout(() => setStage((s) => s + 1), 1400)
@@ -120,7 +93,6 @@ export default function UploadsPage() {
     if (stage !== 3) return
     void (async () => {
       await refresh()
-      // Brief "Complete" hold, then clear active card
       setTimeout(() => {
         setActiveName(null)
         setActiveSize(0)
@@ -150,7 +122,7 @@ export default function UploadsPage() {
           xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) {
               setUploadPct(100)
-              setStage(1) // advance into ingest → analyze → done
+              setStage(1)
               resolve()
             } else {
               reject(new Error(`Upload failed: HTTP ${xhr.status}`))
@@ -159,6 +131,8 @@ export default function UploadsPage() {
           xhr.onerror = () => reject(new Error('Network error'))
           const fd = new FormData()
           fd.append('file', file)
+          // Attach the current query as prompt so the backend stores it
+          if (query.trim()) fd.append('prompt', query.trim())
           xhr.send(fd)
         })
       } catch (err) {
@@ -170,7 +144,7 @@ export default function UploadsPage() {
         if (inputRef.current) inputRef.current.value = ''
       }
     },
-    [],
+    [query],
   )
 
   const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -190,7 +164,7 @@ export default function UploadsPage() {
     void handleUpload(file)
   }
 
-  const handleDelete = async (item: UploadItem) => {
+  const handleDelete = async (item: UploadRecord) => {
     try {
       const res = await fetch(`/api/uploads/${item.video_id}`, {
         method: 'DELETE',
@@ -205,8 +179,11 @@ export default function UploadsPage() {
   }
 
   const filtered = items.filter((u) =>
-    u.filename.toLowerCase().includes(search.toLowerCase()),
+    u.original_filename.toLowerCase().includes(search.toLowerCase()),
   )
+
+  // Total tracks across all uploads for the stats header
+  const totalTracks = items.reduce((sum, u) => sum + (u.track_count ?? 0), 0)
 
   const stageDoneOrActive = (i: number) => {
     if (i === 0) return { done: uploadPct >= 100, active: stage === 0 }
@@ -255,8 +232,8 @@ export default function UploadsPage() {
               <Stat label="Total uploads" value={items.length.toString()} />
               <Stat
                 label="Events detected"
-                value={items.length === 0 ? '—' : 'live'}
-                hint="Tracked on the live event stream"
+                value={items.length === 0 ? '—' : totalTracks.toString()}
+                hint="Sum of tracked objects across all uploads"
               />
               <Stat label="Avg. analysis" value="≈real-time" />
             </div>
@@ -507,7 +484,7 @@ export default function UploadsPage() {
               <div>Preview</div>
               <div>File · Query</div>
               <div>Status</div>
-              <div>Events</div>
+              <div>Tracks</div>
               <div>Duration · Size</div>
               <div>Uploaded</div>
               <div className="text-right">Actions</div>
@@ -538,29 +515,49 @@ export default function UploadsPage() {
                         : 'transparent',
                   }}
                 >
-                  <div
-                    className="relative h-12 w-[84px] overflow-hidden rounded-[2px] border"
-                    style={{ background: '#000' }}
-                  >
-                    <div className="grid h-full w-full place-items-center text-muted-foreground">
-                      <Video className="size-5" strokeWidth={1.5} />
+                  {/* Preview thumbnail — clicking navigates to detail */}
+                  <Link href={`/uploads/${u.video_id}`} className="block">
+                    <div
+                      className="relative h-12 w-[84px] overflow-hidden rounded-[2px] border hover:ring-1 hover:ring-primary/50 transition-all"
+                      style={{ background: '#000' }}
+                    >
+                      <div className="grid h-full w-full place-items-center text-muted-foreground">
+                        <Video className="size-5" strokeWidth={1.5} />
+                      </div>
                     </div>
-                  </div>
+                  </Link>
+
+                  {/* File · Query */}
                   <div className="min-w-0">
-                    <div className="truncate font-mono text-xs font-medium text-foreground">
-                      {u.filename}
-                    </div>
-                    <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
-                      <Sparkles
-                        className="size-2.5 shrink-0"
-                        strokeWidth={1.75}
-                        style={{ color: 'var(--accent-400)' }}
-                      />
-                      <span className="truncate">
-                        Default detection (traffic)
-                      </span>
-                    </div>
+                    <Link
+                      href={`/uploads/${u.video_id}`}
+                      className="block hover:text-primary transition-colors"
+                    >
+                      <div className="truncate font-mono text-xs font-medium text-foreground">
+                        {u.original_filename}
+                      </div>
+                    </Link>
+                    {u.prompt ? (
+                      <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <Sparkles
+                          className="size-2.5 shrink-0"
+                          strokeWidth={1.75}
+                          style={{ color: 'var(--accent-400)' }}
+                        />
+                        <span className="truncate">
+                          {u.prompt.length > 80
+                            ? u.prompt.slice(0, 80) + '…'
+                            : u.prompt}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-[11px] text-muted-foreground/40">
+                        —
+                      </div>
+                    )}
                   </div>
+
+                  {/* Status */}
                   <div>
                     <span
                       className="inline-flex items-center gap-1 rounded-[3px] px-2 py-0.5 text-[11px] font-medium"
@@ -574,23 +571,49 @@ export default function UploadsPage() {
                       analyzed
                     </span>
                   </div>
+
+                  {/* Tracks */}
                   <div>
-                    <span className="text-xs text-muted-foreground">
-                      live stream
-                    </span>
+                    {u.track_count > 0 ? (
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className="inline-flex h-6 min-w-[28px] items-center justify-center rounded-[3px] px-1.5 font-mono text-[11px] font-semibold"
+                          style={{
+                            background:
+                              'color-mix(in srgb, var(--accent-500) 18%, transparent)',
+                            color: 'var(--accent-400)',
+                          }}
+                        >
+                          {u.track_count}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">
+                          tracked
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground/50">
+                        No detections
+                      </span>
+                    )}
                   </div>
+
+                  {/* Duration · Size */}
                   <div className="font-mono text-xs text-foreground/80">
-                    {formatBytes(u.size_bytes)}
+                    {formatDurationSize(u.duration_s, u.size_bytes)}
                   </div>
+
+                  {/* Uploaded */}
                   <div className="text-xs text-muted-foreground">
                     {formatUploaded(u.uploaded_at)}
                   </div>
+
+                  {/* Actions */}
                   <div className="flex justify-end gap-1">
                     <button
                       type="button"
                       onClick={() => setPreviewUrl(u.playback_url)}
                       className="inline-flex size-7 items-center justify-center rounded-[3px] text-muted-foreground hover:bg-secondary hover:text-foreground"
-                      title="Preview"
+                      title="Quick preview"
                     >
                       <ArrowUpRight className="size-3.5" strokeWidth={1.75} />
                     </button>
@@ -675,7 +698,7 @@ export default function UploadsPage() {
             </h2>
             <p className="mt-2 text-sm text-muted-foreground">
               <span className="font-mono text-foreground">
-                {pendingDelete.filename}
+                {pendingDelete.original_filename}
               </span>{' '}
               will be permanently removed from the server.
             </p>
