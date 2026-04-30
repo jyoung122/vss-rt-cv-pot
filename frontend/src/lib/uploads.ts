@@ -1,5 +1,24 @@
 // Shared types and helpers for the uploads feature
 
+export type RuleId = 'vehicle_collision' | 'ped_impact' | 'stationary_vehicle' | 'mass_stop'
+export type Severity = 'high' | 'medium' | 'low'
+
+export type Incident = {
+  id: string
+  video_id: string
+  rule_id: RuleId
+  severity: Severity
+  confidence: number
+  t_start_s: number
+  t_end_s: number
+  frame_start: number
+  frame_end: number
+  track_ids: number[]
+  bbox_union: { x: number; y: number; w: number; h: number }
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
 export type UploadRecord = {
   video_id: string
   original_filename: string

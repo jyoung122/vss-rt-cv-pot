@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
+  AlertTriangle,
   ArrowUpRight,
   CalendarDays,
   Download,
@@ -85,6 +86,8 @@ export default function DashboardPage() {
   const [uploads, setUploads] = useState<UploadRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [incidentCount, setIncidentCount] = useState<number | null>(null)
+  const [incidentsLoading, setIncidentsLoading] = useState(true)
 
   useEffect(() => {
     let cancelled = false
@@ -111,6 +114,43 @@ export default function DashboardPage() {
       cancelled = true
     }
   }, [])
+
+  // Derive incident count by fetching per-upload — no dedicated /api/incidents endpoint yet.
+  // When the backend adds a global count endpoint, replace this with a single fetch.
+  useEffect(() => {
+    if (loading) return
+    if (uploads.length === 0) {
+      setIncidentCount(0)
+      setIncidentsLoading(false)
+      return
+    }
+
+    let cancelled = false
+
+    async function loadIncidentCounts() {
+      try {
+        const results = await Promise.all(
+          uploads.map((u) =>
+            fetch(`/api/uploads/${u.video_id}/incidents`, { cache: 'no-store' })
+              .then((r) => (r.ok ? r.json() : { incidents: [] }))
+              .then((d: { incidents?: unknown[] }) => (d.incidents ?? []).length)
+              .catch(() => 0),
+          ),
+        )
+        if (!cancelled) {
+          setIncidentCount(results.reduce((sum, n) => sum + n, 0))
+        }
+      } finally {
+        if (!cancelled) setIncidentsLoading(false)
+      }
+    }
+
+    void loadIncidentCounts()
+
+    return () => {
+      cancelled = true
+    }
+  }, [uploads, loading])
 
   const stats = useMemo(() => {
     const eventCount = uploads.reduce((sum, item) => sum + item.event_count, 0)
@@ -218,7 +258,7 @@ export default function DashboardPage() {
             </Card>
           )}
 
-          <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <KpiCard
               label="Events indexed"
               value={loading ? null : stats.eventCount.toLocaleString()}
@@ -234,6 +274,15 @@ export default function DashboardPage() {
               trend={KPI_TRENDS.cameras}
               tone="neutral"
               source="Uploads API"
+            />
+            <KpiCard
+              label="Incidents flagged"
+              value={incidentsLoading ? null : (incidentCount ?? '—').toString()}
+              delta="rule-detected"
+              trend={KPI_TRENDS.falsePositive}
+              tone="warn"
+              source="Uploads API"
+              icon={<AlertTriangle className="size-3.5" strokeWidth={1.75} />}
             />
             <KpiCard
               label="Avg. response time"
@@ -290,26 +339,31 @@ function KpiCard({
   trend,
   tone,
   source,
+  icon,
 }: {
   label: string
   value: string | null
   delta: string
   trend: number[]
-  tone: 'accent' | 'ok' | 'neutral'
+  tone: 'accent' | 'ok' | 'neutral' | 'warn'
   source: string
+  icon?: React.ReactNode
 }) {
   const color =
     tone === 'accent'
       ? 'var(--accent-500)'
       : tone === 'ok'
         ? 'var(--ok-500)'
-        : 'var(--fg-4)'
+        : tone === 'warn'
+          ? 'var(--warn-500)'
+          : 'var(--fg-4)'
 
   return (
     <Card className="rounded-[3px]">
       <CardContent className="py-1">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+            {icon && <span style={{ color }}>{icon}</span>}
             {label}
           </div>
           <span className="font-mono text-[10px] text-muted-foreground/70">

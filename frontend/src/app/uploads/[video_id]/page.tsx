@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import {
+  AlertTriangle,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -22,12 +23,15 @@ import { cn } from '@/lib/utils'
 import {
   type UploadRecord,
   type TrackSummary,
+  type Incident,
+  type RuleId,
+  type Severity,
   formatBytes,
 } from '@/lib/uploads'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Card } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Tooltip,
@@ -65,6 +69,38 @@ function classPillStyle(cls: string): React.CSSProperties {
   }
 }
 
+// ─── Incident helpers ─────────────────────────────────────────────────────────
+
+const RULE_LABELS: Record<RuleId, string> = {
+  vehicle_collision: 'Vehicle collision',
+  ped_impact: 'Pedestrian impact',
+  stationary_vehicle: 'Stationary vehicle',
+  mass_stop: 'Traffic anomaly',
+}
+
+// Severity → CSS var token. No hex; tokens are defined in globals.css.
+const SEVERITY_COLOR: Record<Severity, string> = {
+  high:   'var(--danger-500)',
+  medium: 'var(--warn-500)',
+  low:    'var(--ink-400)',
+}
+
+function severityBadgeClass(severity: Severity): string {
+  if (severity === 'high') {
+    return 'border-[color:var(--danger-500)]/40 bg-[color:var(--danger-500)]/10 text-[color:var(--danger-500)]'
+  }
+  if (severity === 'medium') {
+    return 'border-[color:var(--warn-500)]/40 bg-[color:var(--warn-500)]/10 text-[color:var(--warn-500)]'
+  }
+  return 'border-border text-muted-foreground'
+}
+
+function fmtTimestamp(s: number): string {
+  const m = Math.floor(s / 60)
+  const sec = s % 60
+  return `${m}:${sec.toFixed(1).padStart(4, '0')}`
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function UploadDetailPage() {
@@ -73,6 +109,8 @@ export default function UploadDetailPage() {
 
   const [upload, setUpload] = useState<UploadRecord | null>(null)
   const [tracks, setTracks] = useState<TrackSummary[]>([])
+  const [incidents, setIncidents] = useState<Incident[]>([])
+  const [incidentsLoading, setIncidentsLoading] = useState(true)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
@@ -87,6 +125,7 @@ export default function UploadDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
+    setIncidentsLoading(true)
     setFetchError(null)
     try {
       const [uploadRes, eventsRes] = await Promise.all([
@@ -109,6 +148,19 @@ export default function UploadDetailPage() {
       setFetchError(err instanceof Error ? err.message : 'Failed to load')
     } finally {
       setLoading(false)
+    }
+
+    // Incidents fetched independently so the tab can show its own loading state
+    try {
+      const incRes = await fetch(`/api/uploads/${videoId}/incidents`, { cache: 'no-store' })
+      if (incRes.ok) {
+        const incData = await incRes.json()
+        setIncidents(incData.incidents ?? [])
+      }
+    } catch {
+      // Silently degrade — incidents not available yet is not a fatal error
+    } finally {
+      setIncidentsLoading(false)
     }
   }, [videoId])
 
@@ -491,6 +543,39 @@ export default function UploadDetailPage() {
                   )
                 })}
 
+                {/* Incident bands — rendered above track bands, below playhead */}
+                {duration > 0 && incidents.map((inc) => {
+                  const left = (inc.t_start_s / duration) * 100
+                  const width = Math.max(((inc.t_end_s - inc.t_start_s) / duration) * 100, 0.5)
+                  const color = SEVERITY_COLOR[inc.severity]
+                  return (
+                    <Tooltip key={inc.id}>
+                      <TooltipTrigger asChild>
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            seekTo(inc.t_start_s)
+                          }}
+                          style={{
+                            position: 'absolute',
+                            left: `${left}%`,
+                            width: `${width}%`,
+                            top: 0,
+                            height: 4,
+                            background: color,
+                            opacity: 0.9,
+                            cursor: 'pointer',
+                            borderRadius: 1,
+                          }}
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-[11px]">
+                        {RULE_LABELS[inc.rule_id]} · {fmtTimestamp(inc.t_start_s)}–{fmtTimestamp(inc.t_end_s)}
+                      </TooltipContent>
+                    </Tooltip>
+                  )
+                })}
+
                 {/* Playhead */}
                 <div
                   style={{
@@ -666,8 +751,13 @@ export default function UploadDetailPage() {
                 <TabsTrigger value="events" className="text-[12px]">
                   Events
                 </TabsTrigger>
-                <TabsTrigger value="scenarios" className="text-[12px] opacity-50" disabled>
+                <TabsTrigger value="scenarios" className="text-[12px]">
                   Scenarios
+                  {incidents.length > 0 && (
+                    <Badge variant="secondary" className="ml-1 font-mono text-[10px]">
+                      {incidents.length}
+                    </Badge>
+                  )}
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -684,9 +774,20 @@ export default function UploadDetailPage() {
               />
             </TabsContent>
 
-            {/* Scenarios tab — empty state */}
+            {/* Scenarios tab — live incident data */}
             <TabsContent value="scenarios" className="flex min-h-0 flex-1 flex-col">
-              <ScenariosEmptyState />
+              <ScenariosPanel
+                incidents={incidents}
+                loading={incidentsLoading}
+                onSeek={seekTo}
+                onSelectTrack={(trackId) => {
+                  const idx = tracks.findIndex((t) => t.track_id === trackId)
+                  if (idx !== -1) {
+                    setSelectedTrackIdx(idx)
+                    seekTo(tracks[idx].first_t_seconds)
+                  }
+                }}
+              />
             </TabsContent>
           </Tabs>
         </div>
@@ -824,27 +925,134 @@ function EventsPanel({
   )
 }
 
-function ScenariosEmptyState() {
+function ScenariosPanel({
+  incidents,
+  loading,
+  onSeek,
+  onSelectTrack,
+}: {
+  incidents: Incident[]
+  loading: boolean
+  onSeek: (s: number) => void
+  onSelectTrack: (trackId: number) => void
+}) {
+  if (loading) {
+    return (
+      <div className="flex flex-1 flex-col gap-3 overflow-auto p-4">
+        {[0, 1, 2].map((i) => (
+          <Skeleton key={i} className="h-28 w-full rounded-[3px]" />
+        ))}
+      </div>
+    )
+  }
+
+  if (incidents.length === 0) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
+        <AlertTriangle
+          className="mb-3 size-8"
+          strokeWidth={1.25}
+          style={{ color: 'var(--fg-4)' }}
+        />
+        <div className="text-[13px] text-muted-foreground">
+          No incidents detected on this clip.
+        </div>
+        <div className="mt-1 text-[11px]" style={{ color: 'var(--fg-4)' }}>
+          Run the rule analysis to detect vehicle collisions, pedestrian impacts, and anomalies.
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex-1 overflow-auto p-3 space-y-2">
+        {incidents.map((inc) => (
+          <IncidentCard
+            key={inc.id}
+            incident={inc}
+            onSeek={onSeek}
+            onSelectTrack={onSelectTrack}
+          />
+        ))}
+      </div>
       <div
-        className="mb-4 grid place-items-center rounded-[3px]"
-        style={{
-          width: 48, height: 48,
-          background: 'color-mix(in srgb, var(--accent-500) 10%, transparent)',
-          color: 'var(--accent-400)',
-        }}
+        className="flex shrink-0 items-center gap-2 border-t px-4 py-3 text-[11px]"
+        style={{ background: 'var(--surface-2)', color: 'var(--fg-4)' }}
       >
-        <Sparkles className="size-5" strokeWidth={1.5} />
-      </div>
-      <div className="mb-2 text-[15px] font-semibold" style={{ color: 'var(--fg-2)' }}>
-        Scenarios coming in v1.5
-      </div>
-      <div className="text-[12px] leading-relaxed" style={{ color: 'var(--fg-4)' }}>
-        Semantic interpretation of detection patterns over time — wrong-way drivers, stalled
-        vehicles, incidents — generated by VLM or rule analysis.
+        <Shield className="size-3 shrink-0" strokeWidth={1.75} />
+        Rule-based incident detection · Phase A
       </div>
     </div>
+  )
+}
+
+function IncidentCard({
+  incident,
+  onSeek,
+  onSelectTrack,
+}: {
+  incident: Incident
+  onSeek: (s: number) => void
+  onSelectTrack: (trackId: number) => void
+}) {
+  return (
+    <Card className="rounded-[3px]">
+      <CardHeader className="pb-0">
+        <div className="flex items-start gap-2">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[13px] font-semibold" style={{ color: 'var(--fg-1)' }}>
+                {RULE_LABELS[incident.rule_id]}
+              </span>
+              <Badge
+                variant="outline"
+                className={severityBadgeClass(incident.severity)}
+              >
+                {incident.severity}
+              </Badge>
+            </div>
+            <div className="font-mono text-[11px]" style={{ color: 'var(--fg-4)' }}>
+              {fmtTimestamp(incident.t_start_s)} – {fmtTimestamp(incident.t_end_s)}
+              {'  ·  '}
+              {(incident.confidence * 100).toFixed(1)}% confidence
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 shrink-0 gap-1.5"
+            onClick={() => onSeek(incident.t_start_s)}
+          >
+            <Play className="size-3" strokeWidth={1.75} />
+            Jump to
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-2">
+        {incident.track_ids.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px]" style={{ color: 'var(--fg-4)' }}>
+              Tracks:
+            </span>
+            {incident.track_ids.map((id) => (
+              <Tooltip key={id}>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="outline"
+                    className="cursor-pointer font-mono text-[10px] hover:bg-secondary/50"
+                    onClick={() => onSelectTrack(id)}
+                  >
+                    #{id}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>Switch to Events tab to inspect track {id}</TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
