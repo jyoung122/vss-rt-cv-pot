@@ -72,7 +72,7 @@ What we're actually working on now, in order. Tick as we go.
 3. ⏸ **Dashboard — full live-ops view from `dashboard.jsx` artboard** (~1 day) — multi-camera grid + live event feed. Strong demo entry point. Defer to v1.1 if time pressure.
 
 **Phase 3 — backend hardening** (~½ day total, all small)
-4. ⏳ Set `file-loop=0` in `deepstream/config/perception-config.txt` so uploads end deterministically.
+4. ✅ `file-loop=0` set in `deepstream/config/perception-config.txt` (commit `4c5e6da`).
 5. ⏳ Healthchecks on `redis`, `postgres`, `backend`, `vss-rt-cv` in `docker-compose.yml`.
 6. ⏳ TRT engine cache as a named volume — avoid 3.5min cold builds on container restart.
 7. ⏳ Drop `redis-commander` from prod compose.
@@ -83,9 +83,9 @@ What we're actually working on now, in order. Tick as we go.
 10. ⏳ Update README, compose files, planning doc cross-refs (`MIGRATION_MAP.md`, `V1_PLAN.md`).
 
 **Phase 5 — GPU VM deploy** (~½ day)
-11. ⏳ Provision Brev GPU VM (Ampere+, driver 580+).
-12. ⏳ Write `aims/docs/deploy.md` runbook — NGC login, env file, `docker compose up -d`, first-boot TRT cache wait.
-13. ⏳ Cold-deploy on a fresh VM to validate the runbook.
+11. ✅ Brev GPU VM provisioned (A6000 48 GB, driver 580.126.09, CUDA 13.0). E2E validated 2026-04-30.
+12. ⏳ Write `aims/docs/deploy.md` runbook — NGC login, env file, **pre-stage TrafficCamNet ONNX via bearer-token REST** (NGC CLI 403s on signed-URL redirect), **`chmod -R 777 data/models`** (container runs as uid 1000, host dir is host-uid 755), `docker compose up -d`, first-boot TRT cache wait.
+13. ⏳ Cold-deploy on a fresh VM to validate the runbook (the 2026-04-30 run validated the *stack*; the *runbook* itself doesn't exist yet).
 
 **Phase 6 — demo acceptance** (~½ day)
 14. ⏳ Run the 8 acceptance criteria from the plan against the live VM.
@@ -103,9 +103,9 @@ What we're actually working on now, in order. Tick as we go.
 - ⏸ Auth (Supabase JWT or simpler) — v1.5 per locked decisions
 
 ### Risk watch
-- The full pipeline (DeepStream → indexer → Postgres → UI) has never run together. **Item 1 mitigates locally**; item 13 validates on the GPU VM. Until item 13 passes, we're flying on faith for the integration seam.
+- ✅ ~~The full pipeline (DeepStream → indexer → Postgres → UI) has never run together.~~ Validated 2026-04-30 on a Brev A6000: 16,526 events / 70 tracks / 4 classes (car 10,891 · road_sign 2,386 · person 2,204 · bicycle 1,045) on `115_and_HVP.mp4` (148.8 s); `max(t_seconds)=148.67` matched clip duration. API endpoints (`/api/uploads`, `/api/uploads/:id/events?group=tracks`) returned correct shape. Cold-deploy traps catalogued in [`docs/gotchas.md`](docs/gotchas.md).
 - TRT engine cold build (~3.5min) is one-time-per-arch — document in `deploy.md` so the first deploy doesn't look broken.
-- ffprobe inside the slim Python image — not yet exercised. Item 1 will surface this.
+- ✅ ~~ffprobe inside the slim Python image — not yet exercised.~~ Exercised 2026-04-30; parsed 1280×720 @ 15 fps cleanly on upload.
 
 ---
 
