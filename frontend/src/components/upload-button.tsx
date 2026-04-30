@@ -17,7 +17,7 @@ export default function UploadButton({ onUpload }: UploadButtonProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+  const apiUrl = ''
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -42,7 +42,7 @@ export default function UploadButton({ onUpload }: UploadButtonProps) {
       const data = await response.json()
       onUpload({
         videoId: data.video_id,
-        playbackUrl: data.playback_url,
+        playbackUrl: `${apiUrl}${data.playback_url}`,
       })
 
       // Reset input

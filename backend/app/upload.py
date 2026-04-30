@@ -7,11 +7,13 @@ from fastapi import APIRouter, UploadFile, HTTPException
 import httpx
 
 from app.sdr import remove_active_stream, register_stream
+from app.redis_client import clear_stream
 
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 HOST_IP = os.getenv("HOST_IP", "localhost")
 NVSTREAMER_URL = os.getenv("NVSTREAMER_URL", "http://nvstreamer:30000")
 DOCKER_SOCK = "/var/run/docker.sock"
+REDIS_URL = f"redis://{os.getenv('REDIS_HOST', 'redis')}:{os.getenv('REDIS_PORT', '6379')}"
 
 router = APIRouter()
 
@@ -109,33 +111,20 @@ async def upload_video(file: UploadFile):
 
     video_id = Path(file.filename).stem
 
+    # Drop events from any prior video so the feed starts fresh on this upload.
+    await clear_stream(REDIS_URL)
     await remove_active_stream()
 
-    await _restart_container("vss-nvstreamer")
+    # NVStreamer 3.1.0 metadata discovery is broken (Container/videoCodec stay empty,
+    # so RTSP DESCRIBE 404s). Until that is fixed, point DeepStream at the file directly
+    # via uridecodebin (perception-config.txt source0 type=3 + file:// URI).
+    stream_url = f"file:///data/videos/{file.filename}"
 
-    rtsp_url = None
-    for attempt in range(15):
-        await asyncio.sleep(2)
-        rtsp_url = await _get_nvstreamer_rtsp_url(file.filename)
-        if rtsp_url:
-            break
-        print(f"Waiting for NVStreamer to register {file.filename} (attempt {attempt + 1})")
-
-    if not rtsp_url:
-        raise HTTPException(
-            status_code=503,
-            detail="NVStreamer did not register the stream in time",
-        )
-
-    # Internal URL uses container IP — rewrite for Docker-network access
-    docker_rtsp_url = re.sub(r"rtsp://[^:]+:", "rtsp://nvstreamer:", rtsp_url)
-    external_rtsp_url = re.sub(r"rtsp://[^:]+:", f"rtsp://{HOST_IP}:", rtsp_url)
-
-    await register_stream(video_id, docker_rtsp_url)
-    await _update_vss_rt_cv_stream(docker_rtsp_url)
+    await register_stream(video_id, stream_url)
+    await _update_vss_rt_cv_stream(stream_url)
 
     return {
         "video_id": video_id,
-        "rtsp_url": external_rtsp_url,
-        "internal_rtsp_url": docker_rtsp_url,
+        "stream_url": stream_url,
+        "playback_url": f"/api/video/{video_id}",
     }

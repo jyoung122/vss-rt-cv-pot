@@ -11,7 +11,7 @@ SRC_DIR=/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app
 WORK_DIR=/tmp/ds-config
 CONFIG=$WORK_DIR/perception-config.txt
 mkdir -p "$WORK_DIR"
-cp "$SRC_DIR/perception-config.txt" "$SRC_DIR/rtdetr-960x544.txt" "$SRC_DIR/rtdetr-960x544-labels.txt" "$WORK_DIR/"
+cp "$SRC_DIR/perception-config.txt" "$SRC_DIR/rtdetr-960x544.txt" "$SRC_DIR/rtdetr-960x544-labels.txt" "$SRC_DIR/config_tracker_IOU.yml" "$SRC_DIR/dstest5_msgconv_sample_config.txt" "$WORK_DIR/"
 
 sed -i "s/REDIS_HOST_PLACEHOLDER/${REDIS_HOST:-redis}/g" "$CONFIG"
 
@@ -47,6 +47,6 @@ fi
 
 # SDR manages stream sources dynamically — start DeepStream with the base config
 # vss-rt-cv's own entrypoint or deepstream-app handles stream updates from SDR
-echo "[ds-start] Starting DeepStream perception pipeline..."
+echo "[ds-start] Starting metropolis_perception_app..."
 cd "$WORK_DIR"
-exec deepstream-app -c "$CONFIG"
+exec /opt/nvidia/deepstream/deepstream-9.0/sources/apps/sample_apps/metropolis_perception_app/metropolis_perception_app -c "$CONFIG" -m 7 -r 2

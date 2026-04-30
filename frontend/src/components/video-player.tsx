@@ -1,10 +1,14 @@
 'use client'
 
+import BboxOverlay from './bbox-overlay'
+
 interface VideoPlayerProps {
   playbackUrl: string | null
+  wsUrl: string
+  resetKey: number
 }
 
-export default function VideoPlayer({ playbackUrl }: VideoPlayerProps) {
+export default function VideoPlayer({ playbackUrl, wsUrl, resetKey }: VideoPlayerProps) {
   return (
     <div className="space-y-3">
       <h2 className="text-sm font-semibold text-gray-300">Video Playback</h2>
@@ -16,13 +20,16 @@ export default function VideoPlayer({ playbackUrl }: VideoPlayerProps) {
           </span>
         </div>
       ) : (
-        <video
-          src={playbackUrl}
-          controls
-          autoPlay
-          loop
-          className="w-full rounded border border-gray-800"
-        />
+        <div className="relative w-full">
+          <video
+            src={playbackUrl}
+            controls
+            autoPlay
+            loop
+            className="w-full rounded border border-gray-800 block"
+          />
+          <BboxOverlay wsUrl={wsUrl} resetKey={resetKey} />
+        </div>
       )}
     </div>
   )

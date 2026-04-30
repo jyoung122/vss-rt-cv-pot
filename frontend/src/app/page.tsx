@@ -15,8 +15,10 @@ export default function Home() {
   const [videoState, setVideoState] = useState<VideoState | null>(null)
   const [resetKey, setResetKey] = useState(0)
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
-  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080'
+  const apiUrl = ''
+  const wsUrl = typeof window !== 'undefined'
+    ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`
+    : ''
 
   const handleUpload = (result: VideoState) => {
     setVideoState(result)
@@ -57,7 +59,11 @@ export default function Home() {
             </div>
 
             <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
-              <VideoPlayer playbackUrl={videoState?.playbackUrl || null} />
+              <VideoPlayer
+                playbackUrl={videoState?.playbackUrl || null}
+                wsUrl={wsUrl}
+                resetKey={resetKey}
+              />
             </div>
           </div>
 

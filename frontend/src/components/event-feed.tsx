@@ -14,12 +14,6 @@ interface DetectionObject {
   }
 }
 
-interface EventMessage {
-  timestamp: string
-  sensorId: string
-  objects: DetectionObject[]
-}
-
 interface DisplayEvent {
   id: string
   timestamp: string
@@ -54,22 +48,46 @@ export default function EventFeed({ wsUrl, resetKey }: EventFeedProps) {
 
         ws.onmessage = (event) => {
           try {
-            const data = JSON.parse(event.data) as EventMessage
+            // DeepStream MDX broker sends a single field "metadata" whose value is a JSON string.
+            const wrapper = JSON.parse(event.data) as { metadata?: string }
+            if (!wrapper.metadata) return
+            const data = JSON.parse(wrapper.metadata) as {
+              id?: string
+              ['@timestamp']?: string
+              sensorId?: string
+              objects?: string[]
+            }
+            const objects: DetectionObject[] = (data.objects || []).map((line) => {
+              // Format: id|x1|y1|x2|y2|class|#|||||||confidence
+              const parts = line.split('|')
+              return {
+                id: parts[0] || '',
+                type: parts[5] || 'unknown',
+                bbox: {
+                  topleftx: parseFloat(parts[1]) || 0,
+                  toplefty: parseFloat(parts[2]) || 0,
+                  bottomrightx: parseFloat(parts[3]) || 0,
+                  bottomrighty: parseFloat(parts[4]) || 0,
+                },
+              }
+            })
+            const timestamp = data['@timestamp'] || new Date().toISOString()
             const newEvent: DisplayEvent = {
-              id: `${data.timestamp}-${data.sensorId}-${Date.now()}`,
-              timestamp: data.timestamp,
-              sensorId: data.sensorId,
-              objects: data.objects,
+              id: `${data.id || ''}-${Date.now()}`,
+              timestamp,
+              sensorId: data.sensorId || '',
+              objects,
             }
 
+            // Stick to top only if the user is already near the top — otherwise leave their scroll alone.
+            const el = scrollContainerRef.current
+            const stickToTop = !el || el.scrollTop < 40
             setEvents((prevEvents) => {
               const updated = [newEvent, ...prevEvents]
               return updated.slice(0, 100)
             })
-
-            // Auto-scroll to top
-            if (scrollContainerRef.current) {
-              scrollContainerRef.current.scrollTop = 0
+            if (stickToTop && el) {
+              el.scrollTop = 0
             }
           } catch (err) {
             console.error('Failed to parse event:', err, event.data)
@@ -124,7 +142,7 @@ export default function EventFeed({ wsUrl, resetKey }: EventFeedProps) {
 
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto space-y-1 bg-gray-950 rounded border border-gray-800 p-3"
+        className="flex-1 min-h-[300px] max-h-[70vh] overflow-y-auto space-y-1 bg-gray-950 rounded border border-gray-800 p-3"
       >
         {events.length === 0 ? (
           <div className="flex items-center justify-center h-full text-gray-500 text-sm">

@@ -1,6 +1,9 @@
 data/videos/
+data/*.mp4
+data/*.mkv
 data/models/**/*.onnx
 data/models/**/*.engine
 data/models/**/*.pth
 data/models/**/*.etlt
 .env
+.ipynb_checkpoints/
