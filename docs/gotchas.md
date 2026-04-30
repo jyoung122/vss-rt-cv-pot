@@ -100,10 +100,6 @@ brev copy ./clip.mp4 aims:/home/shadeform/vss-rt-cv-pot/data/videos/
 
 ## Doc drift
 
-### `/healthz` vs `/health`
-
-`V1_PLAN.md` and `CURRENT_STATE.md` reference `/healthz`. The backend implements `/health` (`backend/app/main.py:90`). Either rename the route or update the docs — currently `curl /healthz` returns 404.
-
 ### `NGC_API_KEY` vs `NGC_CLI_API_KEY`
 
 `V1_PLAN.md` line 79 lists `NGC_API_KEY`. Real env var name is `NGC_CLI_API_KEY` (matches the NGC CLI convention). `.env.example` is correct.
@@ -114,7 +110,7 @@ brev copy ./clip.mp4 aims:/home/shadeform/vss-rt-cv-pot/data/videos/
 
 - `redis-commander` is still in `docker-compose.yml` (port 8081) — Phase 3 burn-list item 7 drops it from prod.
 - `restart: unless-stopped` is on every long-running service — good.
-- Healthchecks: only `redis-commander` has one. Phase 3 will add them to redis, postgres, backend, vss-rt-cv.
+- Healthchecks are defined for `redis`, `postgres`, `backend`, and `vss-rt-cv`.
 
 ---
 

@@ -87,6 +87,7 @@ app.include_router(events_router)
 app.include_router(uploads_list_router)
 
 
+@app.get("/healthz")
 @app.get("/health")
 async def health():
     return {"status": "ok"}

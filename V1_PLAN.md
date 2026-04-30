@@ -74,7 +74,7 @@ What we're actually working on now, in order. Tick as we go.
 
 **Phase 3 — backend hardening** (~½ day total, all small)
 4. ✅ `file-loop=0` set in `deepstream/config/perception-config.txt` (commit `4c5e6da`).
-5. ⏳ Healthchecks on `redis`, `postgres`, `backend`, `vss-rt-cv` in `docker-compose.yml`.
+5. ✅ Healthchecks on `redis`, `postgres`, `backend`, `vss-rt-cv` in `docker-compose.yml`; backend now serves `/healthz` and keeps `/health` as an alias. Verified with `docker compose config`, `python3 -m compileall backend/app`, and `git diff --check`.
 6. ⏳ TRT engine cache as a named volume — avoid 3.5min cold builds on container restart. **When this lands, drop the `chmod -R 777 data/models` step from `docs/deploy.md` step 4 and the matching gotcha from `docs/gotchas.md`.**
 7. ⏳ Drop `redis-commander` from prod compose.
 8. ⏳ `.env.example` updated — `NGC_API_KEY`, `DATA_DIR`, `HOST_IP`, `DATABASE_URL`, `POSTGRES_PASSWORD`.
@@ -197,18 +197,19 @@ What we're actually working on now, in order. Tick as we go.
 1. **DeepStream config** — `deepstream/config/perception-config.txt`: set `file-loop=0` so uploaded clips end cleanly instead of looping.
 2. **Compose hardening** — `docker-compose.yml`:
    - `restart: unless-stopped` on all long-running services
-   - Healthchecks on `redis`, `backend`, `vss-rt-cv`
+   - ✅ Healthchecks on `redis`, `postgres`, `backend`, `vss-rt-cv`
+   - ✅ Health-aware `depends_on` ordering for Redis/Postgres/backend dependencies
    - Named volume for TRT engine cache (avoid 3.5min rebuild on container restart)
    - `.env.example` documenting `NGC_API_KEY` and any other required env
 3. **Backend** — `backend/app/`:
-   - Confirm `/healthz` endpoint exists; add if missing
+   - ✅ Confirm `/healthz` endpoint exists; `/health` remains as a compatibility alias
    - CORS: restrict to deploy origin
    - Drop `redis-commander` from prod compose (dev-only)
 
 ### Verification
 
 - `docker compose config` clean
-- `docker compose up`, `curl /healthz` returns 200
+- `docker compose up`, `curl http://localhost:8080/healthz` returns 200
 - Restart `vss-rt-cv` container, second startup <10s (TRT cache warm)
 - Upload a clip, verify it processes once (no loop)
 
@@ -254,7 +255,7 @@ What we're actually working on now, in order. Tick as we go.
    - `git clone <aims repo>`, `cp .env.example .env`, fill in secrets
    - `docker compose up -d`
    - Wait for first TRT engine build (~3.5min, one-time)
-   - Verify `curl http://localhost/healthz`
+   - Verify `curl http://localhost:8080/healthz`
 3. **First-run smoke** — upload a sample clip via the deployed UI, confirm bbox overlay + event feed populate.
 
 ### Verification

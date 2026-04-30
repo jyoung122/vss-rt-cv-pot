@@ -16,6 +16,12 @@ services:
     networks:
       - vss-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   postgres:
     image: postgres:16-alpine
@@ -29,6 +35,12 @@ services:
     networks:
       - vss-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aims -d aims"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   nvstreamer:
     image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_TAG}
@@ -66,8 +78,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
-      - nvstreamer
-      - redis
+      nvstreamer:
+        condition: service_started
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   vss-rt-cv:
@@ -86,8 +100,10 @@ services:
       - ./deepstream/init/ds-start.sh:/ds-start.sh
     entrypoint: /ds-start.sh
     depends_on:
-      - redis
-      - sdr
+      redis:
+        condition: service_healthy
+      sdr:
+        condition: service_started
     networks:
       - vss-net
     deploy:
@@ -100,6 +116,12 @@ services:
               capabilities:
                 - gpu
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q metropolis_perception_app"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 5m
 
   backend:
     build: ./backend
@@ -118,12 +140,21 @@ services:
       - ${DATA_DIR}/videos:/data/videos
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
-      - redis
-      - sdr
-      - postgres
+      redis:
+        condition: service_healthy
+      sdr:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     networks:
       - vss-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/healthz >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   frontend:
     build:
@@ -132,7 +163,8 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - vss-net
     restart: unless-stopped
@@ -145,7 +177,8 @@ services:
     environment:
       REDIS_HOSTS: local:redis:6379
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
       - vss-net
     restart: unless-stopped

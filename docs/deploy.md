@@ -161,7 +161,7 @@ For a 149 s 720p clip at 15 fps you should see ~10 k–20 k events / 30–80 tra
 | # | Check | How |
 |---|---|---|
 | A1 | Frontend loads at `http://$HOST_IP:3000` | browser |
-| A2 | Health endpoint | `curl http://localhost:8080/health` → `200` |
+| A2 | Health endpoint | `curl http://localhost:8080/healthz` → `200` |
 | A3 | Upload returns a `video_id` | step 7 |
 | A4 | Events flow into Postgres | `SELECT count(*) FROM events` increases |
 | A5 | Track summary endpoint | `curl /api/uploads/<id>/events?group=tracks` returns rows |
