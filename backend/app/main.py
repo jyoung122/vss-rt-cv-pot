@@ -10,6 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.upload import router as upload_router
 from app.playback import router as playback_router
 from app.events import router as events_router
+from app.uploads_list import router as uploads_list_router
 from app.sdr import remove_active_stream
 from app.redis_client import clear_stream
 
@@ -59,6 +60,7 @@ app.add_middleware(
 app.include_router(upload_router)
 app.include_router(playback_router)
 app.include_router(events_router)
+app.include_router(uploads_list_router)
 
 
 @app.get("/health")
