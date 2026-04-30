@@ -5,8 +5,6 @@ import Link from 'next/link'
 import {
   AlertTriangle,
   ArrowUpRight,
-  CalendarDays,
-  Download,
   FileVideo,
   Gauge,
   MapPinned,
@@ -22,7 +20,6 @@ import {
   formatDuration,
   formatUploaded,
 } from '@/lib/uploads'
-import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -33,13 +30,6 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-
-const RANGES = [
-  { id: '7d', label: '7 days' },
-  { id: '30d', label: '30 days' },
-  { id: '90d', label: 'Quarter' },
-  { id: 'ytd', label: 'YTD' },
-] as const
 
 const KPI_TRENDS = {
   events: [12, 18, 15, 22, 19, 28, 24, 31, 27, 34, 29, 38],
@@ -80,10 +70,7 @@ const ACTIVE_RULES = [
   { name: 'Signal phase anomaly', triggers: 177, fp: 5.2, status: 'tuning' },
 ]
 
-type RangeId = (typeof RANGES)[number]['id']
-
 export default function DashboardPage() {
-  const [range, setRange] = useState<RangeId>('30d')
   const [uploads, setUploads] = useState<UploadRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -180,50 +167,6 @@ export default function DashboardPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div
-        className="flex min-h-12 shrink-0 flex-wrap items-center gap-3 border-b px-5 py-2"
-        style={{ background: 'var(--surface-1)' }}
-      >
-        <span className="font-display text-[13px] font-medium text-foreground">
-          Dashboard
-        </span>
-        <div className="flex-1" />
-        <div
-          className="flex rounded-[3px] border p-0.5"
-          style={{ background: 'var(--surface-2)' }}
-        >
-          {RANGES.map((item) => (
-            <Button
-              key={item.id}
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setRange(item.id)}
-              className={cn(
-                'h-[26px] rounded-[3px] px-2.5 text-[11px]',
-                range === item.id
-                  ? 'text-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-              style={{
-                background:
-                  range === item.id ? 'var(--surface-3)' : 'transparent',
-              }}
-            >
-              {item.label}
-            </Button>
-          ))}
-        </div>
-        <Button variant="outline" size="sm" disabled className="gap-1.5">
-          <CalendarDays className="size-3.5" />
-          Apr 1 - Apr 30
-        </Button>
-        <Button variant="outline" size="sm" disabled className="gap-1.5">
-          <Download className="size-3.5" />
-          Export PDF
-        </Button>
-      </div>
-
       <div className="flex-1 overflow-auto px-4">
         <div className="w-full">
           <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">

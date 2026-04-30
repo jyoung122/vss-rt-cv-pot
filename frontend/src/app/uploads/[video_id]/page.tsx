@@ -287,59 +287,6 @@ export default function UploadDetailPage() {
 
   return (
     <div className="flex h-full flex-col" style={{ minHeight: 0 }}>
-
-      {/* ── Breadcrumb bar ──────────────────────────────────────────────── */}
-      <div
-        className="flex h-14 shrink-0 items-center gap-3 border-b px-5"
-        style={{ background: 'var(--surface-1)' }}
-      >
-        <Link
-          href="/uploads"
-          className="text-[13px] text-muted-foreground hover:text-foreground transition-colors"
-        >
-          Uploads
-        </Link>
-        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/50" strokeWidth={1.5} />
-        <span className="max-w-xs truncate font-mono text-[13px] font-medium text-foreground">
-          {upload.original_filename}
-        </span>
-        <div className="flex-1" />
-
-        {/* Analysis complete badge */}
-        <Badge
-          variant="outline"
-          className="gap-1.5 border-[color:var(--ok-500)]/40 bg-[color:var(--ok-500)]/10 text-[color:var(--ok-300)]"
-        >
-          <Check className="size-3" strokeWidth={2.5} />
-          Analysis complete
-        </Badge>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="sm" className="gap-1.5" disabled>
-              <Download className="size-3.5" strokeWidth={1.75} />
-              Export report
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Coming in v1.5</TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="default"
-              size="sm"
-              className="gap-1.5"
-              disabled
-            >
-              <Plus className="size-3.5" strokeWidth={2} />
-              Create detection rule
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Coming in v1.5</TooltipContent>
-        </Tooltip>
-      </div>
-
       {/* ── Meta strip ──────────────────────────────────────────────────── */}
       <div
         className="flex shrink-0 items-center gap-7 border-b px-5 py-3"

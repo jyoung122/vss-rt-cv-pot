@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   ArrowUpRight,
@@ -9,7 +9,6 @@ import {
   Filter,
   Grid3x3,
   List as ListIcon,
-  Search,
   Shield,
   Sparkles,
   Trash2,
@@ -17,6 +16,7 @@ import {
   Video,
   X,
 } from 'lucide-react'
+import { useSearchParams } from 'next/navigation'
 
 import { cn } from '@/lib/utils'
 import {
@@ -56,10 +56,18 @@ const STAGES = ['Upload', 'Ingest', 'CV analysis', 'Index events'] as const
 const STAGE_LABELS = ['UPLOAD', 'INGEST', 'CV ANALYSIS', 'INDEX'] as const
 
 export default function UploadsPage() {
+  return (
+    <Suspense fallback={<div className="flex-1 p-8 text-sm text-muted-foreground">Loading uploads…</div>}>
+      <UploadsContent />
+    </Suspense>
+  )
+}
+
+function UploadsContent() {
+  const searchParams = useSearchParams()
   const [items, setItems] = useState<UploadRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
   const [query, setQuery] = useState(
     'Flag any traffic incidents, debris, or wrong-way drivers',
   )
@@ -194,6 +202,7 @@ export default function UploadsPage() {
     }
   }
 
+  const search = searchParams.get('q') ?? ''
   const filtered = items.filter((u) =>
     u.original_filename.toLowerCase().includes(search.toLowerCase()),
   )
@@ -208,29 +217,6 @@ export default function UploadsPage() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Top filter bar — search */}
-      <div
-        className="flex h-12 shrink-0 items-center gap-3 border-b px-5"
-        style={{ background: 'var(--surface-1)' }}
-      >
-        <span className="font-display text-[13px] font-medium text-foreground">
-          Uploads
-        </span>
-        <div className="flex-1" />
-        <div
-          className="flex h-8 w-80 items-center gap-2 rounded-[3px] border px-3"
-          style={{ background: 'var(--surface-2)' }}
-        >
-          <Search className="size-3.5 text-muted-foreground" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search uploads by name"
-            className="flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
-          />
-        </div>
-      </div>
-
       <div className="flex-1 overflow-auto px-8 py-6">
         <div className="mx-auto max-w-[1280px]">
           {/* Page header */}

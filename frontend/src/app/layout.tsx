@@ -2,12 +2,11 @@ import type { Metadata } from 'next'
 import { Inter, JetBrains_Mono, Space_Grotesk } from 'next/font/google'
 import './globals.css'
 
+import { AppHeader } from '@/components/app-header'
 import { AppSidebar } from '@/components/app-sidebar'
-import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
-import { Separator } from '@/components/ui/separator'
+import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ThemeProvider } from '@/components/theme-provider'
-import { ThemeToggle } from '@/components/theme-toggle'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -59,15 +58,7 @@ export default function RootLayout({
             <SidebarProvider className="h-svh">
               <AppSidebar />
               <SidebarInset className="min-h-0 overflow-hidden">
-                <header className="flex h-14 shrink-0 items-center gap-2 border-b px-5">
-                  <SidebarTrigger className="-ml-1" />
-                  <Separator orientation="vertical" className="mr-2 h-4" />
-                  <span className="font-display text-sm font-semibold tracking-tight">
-                    SSI AIMS
-                  </span>
-                  <div className="flex-1" />
-                  <ThemeToggle />
-                </header>
+                <AppHeader />
                 <div className="flex min-h-0 flex-1 flex-col">{children}</div>
               </SidebarInset>
             </SidebarProvider>
