@@ -1,4 +1,4 @@
-# Dev stack — backend + redis only. No GPU, no NGC pull, no vss-rt-cv.
+# Dev stack — backend + redis + postgres only. No GPU, no NGC pull, no vss-rt-cv.
 #
 # Use this for frontend / API iteration when you don't need DeepStream
 # perception running. Uploads will land on disk and show in /api/uploads,
@@ -26,6 +26,19 @@ services:
       - aims-dev
     restart: unless-stopped
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: aims-postgres-dev
+    environment:
+      POSTGRES_USER: aims
+      POSTGRES_PASSWORD: aims
+      POSTGRES_DB: aims
+    volumes:
+      - aims-pg-data:/var/lib/postgresql/data
+    networks:
+      - aims-dev
+    restart: unless-stopped
+
   backend:
     build: ./backend
     container_name: aims-backend-dev
@@ -35,6 +48,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       DATA_DIR: /data
+      DATABASE_URL: postgresql://aims:aims@postgres:5432/aims
       # SDR / NVStreamer aren't running in dev; calls fail-and-warn,
       # uploads still succeed.
       SDR_URL: http://sdr-disabled:4001
@@ -44,6 +58,7 @@ services:
       - ${DATA_DIR:-./data}/videos:/data/videos
     depends_on:
       - redis
+      - postgres
     networks:
       - aims-dev
     restart: unless-stopped
@@ -51,3 +66,6 @@ services:
 networks:
   aims-dev:
     driver: bridge
+
+volumes:
+  aims-pg-data: {}

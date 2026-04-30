@@ -1,4 +1,5 @@
 import os
+import asyncio
 from contextlib import asynccontextmanager
 import redis.asyncio as redis
 from fastapi import FastAPI, Request
@@ -13,12 +14,15 @@ from app.events import router as events_router
 from app.uploads_list import router as uploads_list_router
 from app.sdr import remove_active_stream
 from app.redis_client import clear_stream
+from app.db import init_pool, close_pool
+from app.event_indexer import run_indexer
 
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
 redis_client = None
+_indexer_task: asyncio.Task | None = None
 
 
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
@@ -37,17 +41,37 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global redis_client
+    global redis_client, _indexer_task
+
+    # Postgres
+    await init_pool()
+
+    # Redis
     redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
     try:
         await redis_client.ping()
     except Exception as e:
         print(f"Redis connection warning: {e}")
+
+    # Event indexer
+    redis_url = f"redis://{REDIS_HOST}:{REDIS_PORT}"
+    _indexer_task = asyncio.create_task(run_indexer(redis_url))
+
     yield
+
+    # Shutdown
+    if _indexer_task is not None:
+        _indexer_task.cancel()
+        try:
+            await _indexer_task
+        except asyncio.CancelledError:
+            pass
+
     await redis_client.aclose()
+    await close_pool()
 
 
-app = FastAPI(title="vss-rt-cv-pot", lifespan=lifespan)
+app = FastAPI(title="SSI AIMS v1", lifespan=lifespan)
 
 app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(

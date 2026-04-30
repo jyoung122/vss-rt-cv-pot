@@ -17,6 +17,19 @@ services:
       - vss-net
     restart: unless-stopped
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: aims-postgres
+    environment:
+      POSTGRES_USER: aims
+      POSTGRES_PASSWORD: aims
+      POSTGRES_DB: aims
+    volumes:
+      - aims-pg-data:/var/lib/postgresql/data
+    networks:
+      - vss-net
+    restart: unless-stopped
+
   nvstreamer:
     image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_TAG}
     container_name: vss-nvstreamer
@@ -100,12 +113,14 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       DATA_DIR: /data
+      DATABASE_URL: postgresql://aims:aims@postgres:5432/aims
     volumes:
       - ${DATA_DIR}/videos:/data/videos
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - redis
       - sdr
+      - postgres
     networks:
       - vss-net
     restart: unless-stopped
@@ -138,3 +153,6 @@ services:
 networks:
   vss-net:
     driver: bridge
+
+volumes:
+  aims-pg-data: {}
