@@ -92,7 +92,7 @@ What we're actually working on now, in order. Tick as we go.
 
 **Phase 5 — GPU VM deploy** (~½ day)
 11. ✅ Brev GPU VM provisioned (A6000 48 GB, driver 580.126.09, CUDA 13.0). E2E validated 2026-04-30.
-12. 🔥 Runbook drafted at `docs/deploy/deploy.md` + `docs/deploy/reverse-proxy.md` — NGC login, env file, **pre-stage TrafficCamNet ONNX via bearer-token REST** (NGC CLI 403s on signed-URL redirect), **`chmod -R 777 data/models`** (container runs as uid 1000, host dir is host-uid 755), `docker compose up -d`, first-boot TRT cache wait. **Uncommitted** — `docs/deploy.md` shows as deleted in working tree and the new `docs/deploy/` folder is untracked. Decide rename vs revert and land in one commit before claiming done.
+12. ✅ Runbook at `docs/deploy/deploy.md` + companion `docs/deploy/reverse-proxy.md` — NGC login, env file, **pre-stage TrafficCamNet ONNX via bearer-token REST** (NGC CLI 403s on signed-URL redirect), **`chmod -R 777 data/models`** (container runs as uid 1000, host dir is host-uid 755), `docker compose up -d`, first-boot TRT cache wait. Move + reverse-proxy guide landed in commit `014316e`.
 13. ⏳ Cold-deploy on a fresh VM to validate the runbook (the 2026-04-30 run validated the *stack*; the *runbook* itself isn't committed yet).
 
 **Phase 6 — demo acceptance** (~½ day)
