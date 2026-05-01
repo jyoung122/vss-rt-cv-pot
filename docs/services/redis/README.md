@@ -75,4 +75,4 @@ docker exec vss-redis redis-cli DEL mdx-raw
 
 ## Related plan items
 
-- [Phase 3 — Backend hardening (drop redis-commander)](../../V1_PLAN.md#phase-3--backend-hardening-for-prod-ish) (burn-list item 7)
+- [Phase 3 — Backend hardening (drop redis-commander)](../../../V1_PLAN.md#phase-3--backend-hardening-for-prod-ish) (burn-list item 7)

@@ -15,7 +15,7 @@ Next.js 15.3 + React 19 + TypeScript application. Provides the SSI AIMS user int
 
 ## Configuration
 
-Required env vars (see [`.env.example`](../../.env.example)):
+Required env vars (see [`.env.example`](../../../.env.example)):
 
 | Var | Default | Purpose |
 |---|---|---|
@@ -99,11 +99,11 @@ git checkout frontend/tsconfig.json
 
 ## Known issues / gotchas
 
-- **`node_modules` collision in Docker build.** The `frontend/.dockerignore` excludes `node_modules` and `.next`. Do not delete it — see [`../gotchas.md`](../gotchas.md#frontend-build-fails-with-cannot-replace-to-directory--node_modules-with-file).
+- **`node_modules` collision in Docker build.** The `frontend/.dockerignore` excludes `node_modules` and `.next`. Do not delete it — see [`../../gotchas.md`](../../gotchas.md#frontend-build-fails-with-cannot-replace-to-directory--node_modules-with-file).
 - **No healthcheck on the container.** The compose `depends_on: backend: condition: service_healthy` ensures the API is up before the frontend starts, but there is no explicit frontend healthcheck.
 
 ## Related plan items
 
-- [Phase 2 — UI improvements](../../V1_PLAN.md#phase-2--ui-improvements-lift-ivm-shell) — design system lift, shadcn primitives, OpsVision tokens
-- [Phase 7/8 follow-on — incidents UX polish](../../V1_PLAN.md#phase-78-follow-on--incidents-ux-polish) — incidents catalog, scrubber bands, live-editable thresholds
-- [Phase 9 — Observability v0](../../V1_PLAN.md#phase-9--supportdev-observability-v0) — `frontend/src/lib/logger.ts` OTel envelope
+- [Phase 2 — UI improvements](../../../V1_PLAN.md#phase-2--ui-improvements-lift-ivm-shell) — design system lift, shadcn primitives, OpsVision tokens
+- [Phase 7/8 follow-on — incidents UX polish](../../../V1_PLAN.md#phase-78-follow-on--incidents-ux-polish) — incidents catalog, scrubber bands, live-editable thresholds
+- [Phase 9 — Observability v0](../../../V1_PLAN.md#phase-9--supportdev-observability-v0) — `frontend/src/lib/logger.ts` OTel envelope

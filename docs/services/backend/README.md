@@ -36,7 +36,7 @@ FastAPI application that is the central hub of the AIMS pipeline. It handles vid
 
 ## Configuration
 
-Required env vars (see [`.env.example`](../../.env.example)):
+Required env vars (see [`.env.example`](../../../.env.example)):
 
 | Var | Default | Purpose |
 |---|---|---|
@@ -87,7 +87,7 @@ Required env vars (see [`.env.example`](../../.env.example)):
 
 ### Postgres tables
 
-`uploads`, `events`, `incidents`, `rule_config` — see [`backend/app/schema.sql`](../../backend/app/schema.sql).
+`uploads`, `events`, `incidents`, `rule_config` — see [`backend/app/schema.sql`](../../../backend/app/schema.sql).
 
 ## Runbook
 
@@ -139,14 +139,14 @@ curl http://localhost:8080/api/uploads/synth-collision/incidents
 
 ## Known issues / gotchas
 
-- **`CannotConnectNowError` on first boot.** Postgres may still be initialising when the backend lifespan connects. Uvicorn retries and the second attempt succeeds. If startup fails, `docker compose restart backend`. See [`../gotchas.md`](../gotchas.md#backend-logs-asyncpgexceptionscannotconnectnowerror).
-- **SDR DNS error on cold start.** The upload handler tries to register the stream with SDR. Transient DNS failure observed once (2026-04-30); does not block detection flow in upload-only mode. See [`../gotchas.md`](../gotchas.md#backend-logs-error-registering-stream-with-sdr).
+- **`CannotConnectNowError` on first boot.** Postgres may still be initialising when the backend lifespan connects. Uvicorn retries and the second attempt succeeds. If startup fails, `docker compose restart backend`. See [`../../gotchas.md`](../../gotchas.md#backend-logs-asyncpgexceptionscannotconnectnowerror).
+- **SDR DNS error on cold start.** The upload handler tries to register the stream with SDR. Transient DNS failure observed once (2026-04-30); does not block detection flow in upload-only mode. See [`../../gotchas.md`](../../gotchas.md#backend-logs-error-registering-stream-with-sdr).
 - **JSONB columns decoded via `_jsonb()` helper.** A `set_type_codec` on pool init would be cleaner; noted as future cleanup in the code.
 - **VLM hallucination.** Cosmos may confirm incidents that didn't happen. The UI always renders rule confidence alongside the VLM pill. See V1_PLAN risk watch.
 
 ## Related plan items
 
-- [Phase 3 — Backend hardening](../../V1_PLAN.md#phase-3--backend-hardening-for-prod-ish)
-- [Phase 7 — Incident detection rules](../../V1_PLAN.md#phase-7--incident-detection-rules-phase-a)
-- [Phase 8 — Cosmos-Reason2-2B VLM validation](../../V1_PLAN.md#phase-8--cosmos-reason2-2b-vlm-validation-phase-b)
-- [Phase 9 — Observability v0](../../V1_PLAN.md#phase-9--supportdev-observability-v0)
+- [Phase 3 — Backend hardening](../../../V1_PLAN.md#phase-3--backend-hardening-for-prod-ish)
+- [Phase 7 — Incident detection rules](../../../V1_PLAN.md#phase-7--incident-detection-rules-phase-a)
+- [Phase 8 — Cosmos-Reason2-2B VLM validation](../../../V1_PLAN.md#phase-8--cosmos-reason2-2b-vlm-validation-phase-b)
+- [Phase 9 — Observability v0](../../../V1_PLAN.md#phase-9--supportdev-observability-v0)

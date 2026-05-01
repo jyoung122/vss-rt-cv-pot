@@ -56,7 +56,7 @@ docker compose -f docker-compose.dev.yml -f docker-compose.observability.yml up 
 | `GRAFANA_ADMIN_PASSWORD` | `admin` | Grafana admin password — change for non-demo deploys |
 | `DOCKER_API_VERSION` | `1.44` | Promtail Docker API version |
 
-See [`.env.example`](../../.env.example).
+See [`.env.example`](../../../.env.example).
 
 ## Endpoints / interfaces
 
@@ -119,8 +119,8 @@ docker compose -f docker-compose.yml -f docker-compose.observability.yml down
 
 - **Volumes `aims-loki-data` and `aims-grafana-data` are declared in the overlay file**, not in `docker-compose.yml`. Running `docker compose -f docker-compose.yml down -v` will not remove them. Run `docker compose -f docker-compose.yml -f docker-compose.observability.yml down -v` to wipe them.
 - **Grafana `admin`/`admin` default** — acceptable for a demo VM behind a firewall; change `GRAFANA_ADMIN_PASSWORD` in `.env` for any internet-accessible deploy.
-- **SRE metrics/alerts and OpenSearch indexing are out of scope for v0.** See [V1_PLAN deferred list](../../V1_PLAN.md#deferred-not-blocking-v1-demo).
+- **SRE metrics/alerts and OpenSearch indexing are out of scope for v0.** See [V1_PLAN deferred list](../../../V1_PLAN.md#deferred-not-blocking-v1-demo).
 
 ## Related plan items
 
-- [Phase 9 — Support/dev observability v0](../../V1_PLAN.md#phase-9--supportdev-observability-v0) (items 31–33)
+- [Phase 9 — Support/dev observability v0](../../../V1_PLAN.md#phase-9--supportdev-observability-v0) (items 31–33)

@@ -10,13 +10,13 @@ files:
 
 ## Problem
 
-Per-service docs now live in `docs/services/*.md` (scaffolded 2026-05-01, commits `e0445fb` + `37d8264`) alongside `V1_PLAN.md` and `docs/deploy/**`. Non-engineering stakeholders need a readable view without cloning the repo or browsing GitHub. In-repo markdown stays the source of truth (PR-reviewable, `git grep`-able), but a Notion mirror would let non-engineers consume it.
+Per-service docs now live in `docs/services/**/*.md` (each service has its own directory, e.g. `docs/services/frontend/README.md`; restructured 2026-05-01) alongside `V1_PLAN.md` and `docs/deploy/**`. Non-engineering stakeholders need a readable view without cloning the repo or browsing GitHub. In-repo markdown stays the source of truth (PR-reviewable, `git grep`-able), but a Notion mirror would let non-engineers consume it.
 
 ## Solution
 
 GitHub Action triggered on push to `main` that mirrors:
 
-- `docs/services/*.md`
+- `docs/services/**/*.md`
 - `V1_PLAN.md`
 - `docs/deploy/**`
 

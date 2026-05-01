@@ -25,10 +25,10 @@ NVIDIA VSS Core SDR — the stream discovery and registration service. Manages s
 
 ## Known issues / gotchas
 
-- **SDR DNS error on cold start** (`Temporary failure in name resolution`). Observed once (2026-04-30) during the e2e validation. Does not block detection because SDR registration is not in the active perception path. See [`../gotchas.md`](../gotchas.md#backend-logs-error-registering-stream-with-sdr).
+- **SDR DNS error on cold start** (`Temporary failure in name resolution`). Observed once (2026-04-30) during the e2e validation. Does not block detection because SDR registration is not in the active perception path. See [`../../gotchas.md`](../../gotchas.md#backend-logs-error-registering-stream-with-sdr).
 - **SDR API is partially documented.** The expected request body lives in `backend/app/sdr.py`. If stream registration fails consistently, check `docker compose logs sdr`.
 - **`network_mode: "service:redis"` quirk.** SDR has no independent network entry on `vss-net`. Reaching SDR from other containers requires going through the Redis container's IP on port `4001`. The compose exposes `4001` on the `redis` service for this reason.
 
 ## Related plan items
 
-- [Locked decision D4 — Upload-only; RTSP deferred](../../V1_PLAN.md#locked-decisions)
+- [Locked decision D4 — Upload-only; RTSP deferred](../../../V1_PLAN.md#locked-decisions)

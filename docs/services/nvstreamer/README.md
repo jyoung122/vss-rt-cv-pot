@@ -34,5 +34,5 @@ NVIDIA NVStreamer 3.1.0 — a video ingest and RTSP re-streaming sidecar from th
 ## Related plan items
 
 <!-- TODO: confirm — NVStreamer may be dropped or replaced with MediaMTX in a future RTSP-streaming phase -->
-- [Locked decision D4 — Upload-only; RTSP deferred](../../V1_PLAN.md#locked-decisions)
-- [Deferred — Live (non-batch) incident detection on RTSP streams](../../V1_PLAN.md#deferred-not-blocking-v1-demo)
+- [Locked decision D4 — Upload-only; RTSP deferred](../../../V1_PLAN.md#locked-decisions)
+- [Deferred — Live (non-batch) incident detection on RTSP streams](../../../V1_PLAN.md#deferred-not-blocking-v1-demo)

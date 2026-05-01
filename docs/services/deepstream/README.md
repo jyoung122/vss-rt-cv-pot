@@ -28,7 +28,7 @@ NVIDIA DeepStream perception container. Runs `metropolis_perception_app` (DeepSt
 
 ## Configuration
 
-Required env vars (from [`.env.example`](../../.env.example)):
+Required env vars (from [`.env.example`](../../../.env.example)):
 
 | Var | Default | Purpose |
 |---|---|---|
@@ -133,9 +133,9 @@ If missing, events won't reach Redis. See comments in `ds-start.sh` for Kafka fa
 
 ## Known issues / gotchas
 
-- **TRT compile looks like a hang (~3.5 min, no output).** Normal. Watch `nvidia-smi` for GPU utilisation. See [`../gotchas.md`](../gotchas.md#trt-engine-cold-compile-is-35-min-and-looks-like-a-hang).
-- **`failed to serialize cuda engine to file` crash-loop.** The container runs as `uid=1000`; host `data/models/` must be world-writable. Fix: `chmod -R 777 data/models`. See [`../gotchas.md`](../gotchas.md#vss-rt-cv-crash-loops-with-failed-to-serialize-cuda-engine-to-file).
-- **NGC CLI model download 403.** Pre-stage the ONNX via bearer-token REST (see runbook above). See [`../gotchas.md`](../gotchas.md#vss-rt-cv-exits-trying-to-download-trafficcamnet-from-ngc).
+- **TRT compile looks like a hang (~3.5 min, no output).** Normal. Watch `nvidia-smi` for GPU utilisation. See [`../../gotchas.md`](../../gotchas.md#trt-engine-cold-compile-is-35-min-and-looks-like-a-hang).
+- **`failed to serialize cuda engine to file` crash-loop.** The container runs as `uid=1000`; host `data/models/` must be world-writable. Fix: `chmod -R 777 data/models`. See [`../../gotchas.md`](../../gotchas.md#vss-rt-cv-crash-loops-with-failed-to-serialize-cuda-engine-to-file).
+- **NGC CLI model download 403.** Pre-stage the ONNX via bearer-token REST (see runbook above). See [`../../gotchas.md`](../../gotchas.md#vss-rt-cv-exits-trying-to-download-trafficcamnet-from-ngc).
 - **`libnvds_redis_proto.so` may be missing.** See README known issues for the Kafka sidecar fallback.
 - **IOU tracker ID swaps during occlusion** produce false-positive collision detections. Mitigation in the rule pack: require sustained overlap (≥3 frames) + co-stop. NvDCF swap is a v1.5 item.
 - **Pixel-space velocity** depends on camera angle and resolution; thresholds need per-clip tuning. Documented as a known limitation.
@@ -143,6 +143,6 @@ If missing, events won't reach Redis. See comments in `ds-start.sh` for Kafka fa
 
 ## Related plan items
 
-- [Phase 3 — Backend hardening / `file-loop=0`](../../V1_PLAN.md#phase-3--backend-hardening-for-prod-ish) (burn-list item 4)
-- [Phase 5 — GPU VM deploy](../../V1_PLAN.md#phase-5--gpu-vm-deploy--runbook)
-- [V1_PLAN risk watch — Rule-pack false positives](../../V1_PLAN.md#risk-watch)
+- [Phase 3 — Backend hardening / `file-loop=0`](../../../V1_PLAN.md#phase-3--backend-hardening-for-prod-ish) (burn-list item 4)
+- [Phase 5 — GPU VM deploy](../../../V1_PLAN.md#phase-5--gpu-vm-deploy--runbook)
+- [V1_PLAN risk watch — Rule-pack false positives](../../../V1_PLAN.md#risk-watch)

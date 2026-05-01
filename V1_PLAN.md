@@ -34,15 +34,15 @@ Per-service reference docs — config, runbooks, known issues:
 
 | Service | File |
 |---|---|
-| Frontend (Next.js) | [docs/services/frontend.md](docs/services/frontend.md) |
-| Backend (FastAPI) | [docs/services/backend.md](docs/services/backend.md) |
-| DeepStream (vss-rt-cv) | [docs/services/deepstream.md](docs/services/deepstream.md) |
-| Cosmos-Reason2-2B (VLM) | [docs/services/cosmos.md](docs/services/cosmos.md) |
-| Postgres | [docs/services/postgres.md](docs/services/postgres.md) |
-| Redis | [docs/services/redis.md](docs/services/redis.md) |
-| NVStreamer | [docs/services/nvstreamer.md](docs/services/nvstreamer.md) |
-| SDR | [docs/services/sdr.md](docs/services/sdr.md) |
-| Observability (Loki/Grafana) | [docs/services/observability.md](docs/services/observability.md) |
+| Frontend (Next.js) | [docs/services/frontend/](docs/services/frontend/README.md) |
+| Backend (FastAPI) | [docs/services/backend/](docs/services/backend/README.md) |
+| DeepStream (vss-rt-cv) | [docs/services/deepstream/](docs/services/deepstream/README.md) |
+| Cosmos-Reason2-2B (VLM) | [docs/services/cosmos/](docs/services/cosmos/README.md) |
+| Postgres | [docs/services/postgres/](docs/services/postgres/README.md) |
+| Redis | [docs/services/redis/](docs/services/redis/README.md) |
+| NVStreamer | [docs/services/nvstreamer/](docs/services/nvstreamer/README.md) |
+| SDR | [docs/services/sdr/](docs/services/sdr/README.md) |
+| Observability (Loki/Grafana) | [docs/services/observability/](docs/services/observability/README.md) |
 
 ---
 

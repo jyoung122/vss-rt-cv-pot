@@ -96,13 +96,13 @@ Cosmos-Reason2-2B BF16 uses ~5–6 GB VRAM. DeepStream uses ~3 GB. Combined peak
 
 ## Known issues / gotchas
 
-- **First-boot healthcheck fails for 10–15 min.** This is normal — weight download in progress. The `start_period: 10m` covers it. See [`../gotchas.md`](../gotchas.md#aims-cosmos-healthcheck-fails-for-1015-minutes-on-first-boot).
-- **`POST /analyze` returns VLM errors after Cosmos is healthy.** Most likely the API rejected the base64 video payload. Diagnose with `docker logs vss-backend | grep vlm_validator` and `docker logs aims-cosmos`. Quick workaround: `VLM_ENABLED=false`. See [`../gotchas.md`](../gotchas.md#aims-cosmos-is-healthy-but-post-analyze-returns-vlm-errors).
+- **First-boot healthcheck fails for 10–15 min.** This is normal — weight download in progress. The `start_period: 10m` covers it. See [`../../gotchas.md`](../../gotchas.md#aims-cosmos-healthcheck-fails-for-1015-minutes-on-first-boot).
+- **`POST /analyze` returns VLM errors after Cosmos is healthy.** Most likely the API rejected the base64 video payload. Diagnose with `docker logs vss-backend | grep vlm_validator` and `docker logs aims-cosmos`. Quick workaround: `VLM_ENABLED=false`. See [`../../gotchas.md`](../../gotchas.md#aims-cosmos-is-healthy-but-post-analyze-returns-vlm-errors).
 - **VLM hallucination risk.** Cosmos may confidently confirm incidents that didn't happen. The UI always renders rule confidence alongside the VLM pill — a VLM-only verdict is never presented without rule context.
-- **Ampere (A6000) support.** NVIDIA's tested platforms for Cosmos-Reason2-2B are Hopper and Blackwell. Ampere (A6000) was validated in practice (Phase 8 spike skipped; went straight to implementation #25–30 and tests passed). See [V1_PLAN risk watch](../../V1_PLAN.md#risk-watch).
+- **Ampere (A6000) support.** NVIDIA's tested platforms for Cosmos-Reason2-2B are Hopper and Blackwell. Ampere (A6000) was validated in practice (Phase 8 spike skipped; went straight to implementation #25–30 and tests passed). See [V1_PLAN risk watch](../../../V1_PLAN.md#risk-watch).
 
 ## Related plan items
 
-- [Phase 8 — Cosmos-Reason2-2B VLM validation](../../V1_PLAN.md#phase-8--cosmos-reason2-2b-vlm-validation-phase-b) (items 24–30)
-- [Locked decision D12 — Cosmos-Reason2-2B self-hosted via NIM](../../V1_PLAN.md#locked-decisions)
-- [Locked decision D13 — GPU plan](../../V1_PLAN.md#locked-decisions)
+- [Phase 8 — Cosmos-Reason2-2B VLM validation](../../../V1_PLAN.md#phase-8--cosmos-reason2-2b-vlm-validation-phase-b) (items 24–30)
+- [Locked decision D12 — Cosmos-Reason2-2B self-hosted via NIM](../../../V1_PLAN.md#locked-decisions)
+- [Locked decision D13 — GPU plan](../../../V1_PLAN.md#locked-decisions)
