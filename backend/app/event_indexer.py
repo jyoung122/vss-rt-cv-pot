@@ -5,6 +5,7 @@ detection events into Postgres.
 import asyncio
 import json
 import logging
+import time
 
 import redis.asyncio as aioredis
 
@@ -13,6 +14,7 @@ log = logging.getLogger(__name__)
 STREAM_NAME = "mdx-raw"
 GROUP_NAME = "indexer"
 CONSUMER_NAME = "indexer-1"
+HEALTH_LOG_INTERVAL_S = 10.0
 
 # Per-process fps cache: { video_id -> fps (float or None) }
 _fps_cache: dict[str, float | None] = {}
@@ -46,9 +48,26 @@ def _parse_object(obj_str: str) -> dict | None:
         return None
 
 
+async def _stream_lag(r) -> int | None:
+    try:
+        groups = await r.xinfo_groups(STREAM_NAME)
+    except Exception:
+        return None
+    for group in groups:
+        if group.get("name") == GROUP_NAME:
+            lag = group.get("lag")
+            return int(lag) if lag is not None else None
+    return None
+
+
 async def run_indexer(redis_url: str) -> None:
     """Main indexer loop.  Designed to run forever; catches all exceptions."""
     from app.db import get_pool  # late import to avoid circular at module load
+
+    log.info(
+        "event_indexer.consumer.start",
+        extra={"stream": STREAM_NAME, "consumer_group": GROUP_NAME, "consumer": CONSUMER_NAME},
+    )
 
     while True:
         try:
@@ -58,11 +77,55 @@ async def run_indexer(redis_url: str) -> None:
                 # if it doesn't exist yet).
                 try:
                     await r.xgroup_create(STREAM_NAME, GROUP_NAME, id="0", mkstream=True)
+                    log.info(
+                        "event_indexer.consumer_group.created",
+                        extra={"stream": STREAM_NAME, "consumer_group": GROUP_NAME},
+                    )
                 except aioredis.ResponseError as exc:
                     if "BUSYGROUP" not in str(exc):
                         raise
+                    log.info(
+                        "event_indexer.consumer_group.ready",
+                        extra={"stream": STREAM_NAME, "consumer_group": GROUP_NAME},
+                    )
 
                 pool = get_pool()
+                stats = {
+                    "entries_read": 0,
+                    "rows_inserted": 0,
+                    "malformed_objects": 0,
+                    "orphan_entries": 0,
+                    "entry_errors": 0,
+                }
+                interval_started = time.monotonic()
+                last_health_log = interval_started
+
+                async def emit_health(force: bool = False) -> None:
+                    nonlocal interval_started, last_health_log, stats
+                    now = time.monotonic()
+                    if not force and now - last_health_log < HEALTH_LOG_INTERVAL_S:
+                        return
+                    current_video_id = await r.get("current_video_id")
+                    lag = await _stream_lag(r)
+                    log.info(
+                        "event_indexer.consumer.health",
+                        extra={
+                            "stream": STREAM_NAME,
+                            "consumer_group": GROUP_NAME,
+                            "consumer": CONSUMER_NAME,
+                            "video_id": current_video_id,
+                            "event_count": stats["entries_read"],
+                            "detection_count": stats["rows_inserted"],
+                            "malformed_objects": stats["malformed_objects"],
+                            "orphan_entries": stats["orphan_entries"],
+                            "entry_errors": stats["entry_errors"],
+                            "stream_lag": lag,
+                            "duration_ms": int((now - interval_started) * 1000),
+                        },
+                    )
+                    stats = {key: 0 for key in stats}
+                    interval_started = now
+                    last_health_log = now
 
                 while True:
                     # Block up to 2 s so we can be cancelled cleanly.
@@ -75,11 +138,13 @@ async def run_indexer(redis_url: str) -> None:
                     )
 
                     if not messages:
+                        await emit_health()
                         continue
 
                     for _stream, entries in messages:
                         for entry_id, fields in entries:
                             try:
+                                stats["entries_read"] += 1
                                 raw = fields.get("metadata") or fields.get("msg", "{}")
                                 meta = json.loads(raw)
 
@@ -89,6 +154,7 @@ async def run_indexer(redis_url: str) -> None:
                                 current_video_id = await r.get("current_video_id")
                                 if not current_video_id:
                                     # Orphan frame — nothing loaded yet.
+                                    stats["orphan_entries"] += 1
                                     await r.xack(STREAM_NAME, GROUP_NAME, entry_id)
                                     continue
 
@@ -100,6 +166,7 @@ async def run_indexer(redis_url: str) -> None:
                                 for obj_str in objects:
                                     parsed = _parse_object(obj_str)
                                     if parsed is None:
+                                        stats["malformed_objects"] += 1
                                         continue
                                     rows.append((
                                         current_video_id,
@@ -114,6 +181,17 @@ async def run_indexer(redis_url: str) -> None:
                                         parsed["y2"],
                                     ))
 
+                                log.debug(
+                                    "event_indexer.frame.parsed",
+                                    extra={
+                                        "video_id": current_video_id,
+                                        "entry_id": entry_id,
+                                        "frame_id": frame_id,
+                                        "object_count": len(objects),
+                                        "rows_inserted": len(rows),
+                                    },
+                                )
+
                                 if rows:
                                     await pool.executemany(
                                         """
@@ -125,20 +203,23 @@ async def run_indexer(redis_url: str) -> None:
                                         """,
                                         rows,
                                     )
+                                    stats["rows_inserted"] += len(rows)
 
                                 await r.xack(STREAM_NAME, GROUP_NAME, entry_id)
 
                             except Exception as exc:
-                                log.exception("Error processing entry %s: %s", entry_id, exc)
+                                stats["entry_errors"] += 1
+                                log.exception("event_indexer.entry.error", extra={"entry_id": entry_id, "error": str(exc)})
                                 # Still ack to avoid poison-pill looping.
                                 try:
                                     await r.xack(STREAM_NAME, GROUP_NAME, entry_id)
                                 except Exception:
                                     pass
+                    await emit_health()
 
         except asyncio.CancelledError:
-            log.info("event_indexer cancelled — exiting")
+            log.info("event_indexer.consumer.cancelled")
             return
         except Exception as exc:
-            log.exception("event_indexer outer loop error: %s — retrying in 2s", exc)
+            log.exception("event_indexer.consumer.retry", extra={"error": str(exc)})
             await asyncio.sleep(2)
