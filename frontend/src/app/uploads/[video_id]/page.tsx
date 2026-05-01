@@ -732,12 +732,20 @@ export default function UploadDetailPage() {
               <ScenariosPanel
                 incidents={incidents}
                 loading={incidentsLoading}
-                onSeek={seekTo}
-                onSelectTrack={(trackId) => {
+                onSelectIncident={(inc) => {
+                  // Seek to incident start and select first involved track
+                  seekTo(inc.t_start_s)
+                  const firstId = inc.track_ids[0]
+                  if (firstId != null) {
+                    const idx = tracks.findIndex((t) => t.track_id === firstId)
+                    if (idx !== -1) setSelectedTrackIdx(idx)
+                  }
+                }}
+                onSelectTrackAtTime={(trackId, time) => {
                   const idx = tracks.findIndex((t) => t.track_id === trackId)
                   if (idx !== -1) {
                     setSelectedTrackIdx(idx)
-                    seekTo(tracks[idx].first_t_seconds)
+                    seekTo(time)
                   }
                 }}
               />
@@ -883,13 +891,13 @@ type VlmFilter = 'all' | 'confirmed' | 'rejected' | 'pending'
 function ScenariosPanel({
   incidents,
   loading,
-  onSeek,
-  onSelectTrack,
+  onSelectIncident,
+  onSelectTrackAtTime,
 }: {
   incidents: Incident[]
   loading: boolean
-  onSeek: (s: number) => void
-  onSelectTrack: (trackId: number) => void
+  onSelectIncident: (inc: Incident) => void
+  onSelectTrackAtTime: (trackId: number, time: number) => void
 }) {
   const [filter, setFilter] = useState<VlmFilter>('all')
 
@@ -968,8 +976,8 @@ function ScenariosPanel({
           <IncidentCard
             key={inc.id}
             incident={inc}
-            onSeek={onSeek}
-            onSelectTrack={onSelectTrack}
+            onSelect={() => onSelectIncident(inc)}
+            onSelectTrack={(trackId) => onSelectTrackAtTime(trackId, inc.t_start_s)}
           />
         ))}
       </div>
@@ -1026,11 +1034,11 @@ function VlmPill({ status, verdict }: { status: VlmStatus; verdict: VlmVerdict }
 
 function IncidentCard({
   incident,
-  onSeek,
+  onSelect,
   onSelectTrack,
 }: {
   incident: Incident
-  onSeek: (s: number) => void
+  onSelect: () => void
   onSelectTrack: (trackId: number) => void
 }) {
   const [whyOpen, setWhyOpen] = useState(false)
@@ -1065,7 +1073,7 @@ function IncidentCard({
             variant="outline"
             size="sm"
             className="h-7 shrink-0 gap-1.5"
-            onClick={() => onSeek(incident.t_start_s)}
+            onClick={onSelect}
           >
             <Play className="size-3" strokeWidth={1.75} />
             Jump to
