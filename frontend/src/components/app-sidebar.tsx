@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { LayoutDashboard, List, Settings, Upload } from "lucide-react"
+import { LayoutDashboard, List, Settings, ShieldAlert, Upload } from "lucide-react"
 
 import {
   Sidebar,
@@ -20,6 +20,7 @@ import {
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/uploads", label: "Uploads", icon: Upload },
+  { href: "/incidents", label: "Incidents", icon: ShieldAlert },
   { href: "/events", label: "Events", icon: List },
 ]
 
