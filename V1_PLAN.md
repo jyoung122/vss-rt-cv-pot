@@ -28,6 +28,24 @@
 
 ---
 
+## Services
+
+Per-service reference docs — config, runbooks, known issues:
+
+| Service | File |
+|---|---|
+| Frontend (Next.js) | [docs/services/frontend.md](docs/services/frontend.md) |
+| Backend (FastAPI) | [docs/services/backend.md](docs/services/backend.md) |
+| DeepStream (vss-rt-cv) | [docs/services/deepstream.md](docs/services/deepstream.md) |
+| Cosmos-Reason2-2B (VLM) | [docs/services/cosmos.md](docs/services/cosmos.md) |
+| Postgres | [docs/services/postgres.md](docs/services/postgres.md) |
+| Redis | [docs/services/redis.md](docs/services/redis.md) |
+| NVStreamer | [docs/services/nvstreamer.md](docs/services/nvstreamer.md) |
+| SDR | [docs/services/sdr.md](docs/services/sdr.md) |
+| Observability (Loki/Grafana) | [docs/services/observability.md](docs/services/observability.md) |
+
+---
+
 ## Phases
 
 ```
