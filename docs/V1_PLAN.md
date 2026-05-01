@@ -4,7 +4,7 @@
 
 **Posture:** POT is the app. No auth, no IVM service integration. Upload-only. The IVM repo (`intelligent-video-monitoring/`) is harvested for brand + UI assets, then frozen.
 
-**Prior plan:** [V1_PLAN_INTEGRATION_ARCHIVED.md](V1_PLAN_INTEGRATION_ARCHIVED.md) — abandoned per 2026-04-30 scope reset (auth dropped, IVM service integration dropped).
+**Prior plan:** [V1_PLAN_INTEGRATION_ARCHIVED.md](../../V1_PLAN_INTEGRATION_ARCHIVED.md) — abandoned per 2026-04-30 scope reset (auth dropped, IVM service integration dropped).
 
 ---
 
@@ -34,15 +34,15 @@ Per-service reference docs — config, runbooks, known issues:
 
 | Service | File |
 |---|---|
-| Frontend (Next.js) | [docs/services/frontend/](docs/services/frontend/README.md) |
-| Backend (FastAPI) | [docs/services/backend/](docs/services/backend/README.md) |
-| DeepStream (vss-rt-cv) | [docs/services/deepstream/](docs/services/deepstream/README.md) |
-| Cosmos-Reason2-2B (VLM) | [docs/services/cosmos/](docs/services/cosmos/README.md) |
-| Postgres | [docs/services/postgres/](docs/services/postgres/README.md) |
-| Redis | [docs/services/redis/](docs/services/redis/README.md) |
-| NVStreamer | [docs/services/nvstreamer/](docs/services/nvstreamer/README.md) |
-| SDR | [docs/services/sdr/](docs/services/sdr/README.md) |
-| Observability (Loki/Grafana) | [docs/services/observability/](docs/services/observability/README.md) |
+| Frontend (Next.js) | [services/frontend/](services/frontend/README.md) |
+| Backend (FastAPI) | [services/backend/](services/backend/README.md) |
+| DeepStream (vss-rt-cv) | [services/deepstream/](services/deepstream/README.md) |
+| Cosmos-Reason2-2B (VLM) | [services/cosmos/](services/cosmos/README.md) |
+| Postgres | [services/postgres/](services/postgres/README.md) |
+| Redis | [services/redis/](services/redis/README.md) |
+| NVStreamer | [services/nvstreamer/](services/nvstreamer/README.md) |
+| SDR | [services/sdr/](services/sdr/README.md) |
+| Observability (Loki/Grafana) | [services/observability/](services/observability/README.md) |
 
 ---
 
@@ -59,6 +59,7 @@ Phase 7  Incident detection — rules (Phase A)      (1½ days)    ✅
 Phase 8  Cosmos-Reason 2 validation (Phase B)      (2½ days)    ✅
 Phase 9  Support/dev observability v0              (½ day)      ✅
 Phase 7/8 follow-on — incidents UX polish          (½ day)      ✅
+Phase 10 Product tour (in-app guided walkthrough)   (½ day)
 ```
 
 Total: ~8–10 days.
@@ -110,7 +111,7 @@ What we're actually working on now, in order. Tick as we go.
 
 **Phase 5 — GPU VM deploy** (~½ day)
 11. ✅ Brev GPU VM provisioned (A6000 48 GB, driver 580.126.09, CUDA 13.0). E2E validated 2026-04-30.
-12. ✅ Runbook at `docs/deploy/deploy.md` + companion `docs/deploy/reverse-proxy.md` — NGC login, env file, **pre-stage TrafficCamNet ONNX via bearer-token REST** (NGC CLI 403s on signed-URL redirect), **`chmod -R 777 data/models`** (container runs as uid 1000, host dir is host-uid 755), `docker compose up -d`, first-boot TRT cache wait. Move + reverse-proxy guide landed in commit `014316e`.
+12. ✅ Runbook at `deploy/deploy.md` + companion `deploy/reverse-proxy.md` — NGC login, env file, **pre-stage TrafficCamNet ONNX via bearer-token REST** (NGC CLI 403s on signed-URL redirect), **`chmod -R 777 data/models`** (container runs as uid 1000, host dir is host-uid 755), `docker compose up -d`, first-boot TRT cache wait. Move + reverse-proxy guide landed in commit `014316e`.
 13. ⏳ Cold-deploy on a fresh VM to validate the runbook (the 2026-04-30 run validated the *stack*; the *runbook* itself isn't committed yet).
 
 **Phase 6 — demo acceptance** (~½ day)
@@ -140,7 +141,7 @@ Self-hosted `nvcr.io/nim/nvidia/cosmos-reason2-2b:latest` confirms / rejects / r
 27. ✅ VLM validator worker `backend/app/vlm_validator.py` — finds pending incidents, extracts clip via ffmpeg, calls Cosmos `/v1/chat/completions` with base64 video + structured prompt, strips `<think>` tags, parses JSON verdict, writes back. `VLM_ENABLED=false` → `vlm_status='skipped'` in one UPDATE. Spawned as `asyncio.create_task` from the analyze endpoint.
 28. ✅ UI: VLM pill on each incident card (`Confirmed` / `Rejected` / `Uncertain` / `Pending` / `Error`), expandable "Why" panel with reasoning + model + latency, filter chips (`All` / `Confirmed` / `Rejected` / `Pending`) at top of Scenarios tab.
 29. ✅ Dashboard KPI split: `Rule-detected` vs `VLM-confirmed` (by Cosmos-Reason2).
-30. ✅ `docs/deploy/deploy.md` + `docs/gotchas.md` — Cosmos cold-start (10–15 min first boot, ~60 s after cache), GPU co-residency (~9 GB combined on A6000), `VLM_ENABLED=false` skip path, `--scale cosmos=0` escape hatch.
+30. ✅ `deploy/deploy.md` + `gotchas.md` — Cosmos cold-start (10–15 min first boot, ~60 s after cache), GPU co-residency (~9 GB combined on A6000), `VLM_ENABLED=false` skip path, `--scale cosmos=0` escape hatch.
 
 **Phase 9 — Support/dev observability v0** (~½ day)
 
@@ -158,6 +159,16 @@ Structured stdout logs and an optional OSS log UI for support/dev debugging. Sco
 37. ✅ `incident_worker` mass-stop tuning + stale-incident cleanup fix. Commit `7e95b2a`.
 38. ✅ Incident click on uploads detail seeks to incident time and selects first track. Commit `10b4a3d`.
 
+**Phase 10 — Product tour (in-app guided walkthrough)** (~½ day)
+
+First-run guided walkthrough so a stakeholder can self-serve the demo: Dashboard → Uploads → detail page (Events / Scenarios / scrubber bands) → Incidents catalog. Library: **[driver.js](https://driverjs.com/)** (MIT, ~5 KB, framework-agnostic, themable via CSS so it inherits our shadcn / OpsVision tokens). Alternatives considered: `react-joyride` (heavier, opinionated React state), `shepherd.js` (Popper-heavy), `onborda` (Next.js-native but young). driver.js wins on size + zero React coupling for our static-first marketing-style tour.
+
+39. ⏳ Add `driver.js` to `frontend/package.json`; wrap in `frontend/src/lib/tour.ts` with a typed `startTour(name)` helper and step registry per route.
+40. ⏳ Theme overrides in `frontend/src/app/globals.css` — popover background/border/text via `--bg-*` / `--fg-*` / `--accent-500` so light/dark both work without hex.
+41. ⏳ Step content for Dashboard (KPIs, rule-detected vs VLM-confirmed split), Uploads list, upload detail (Events tab, Scenarios tab, scrubber band layer), Incidents catalog page.
+42. ⏳ Persist "tour seen" in `localStorage` (`aims:tour:v1`); auto-launch once on first dashboard visit, plus a manual "Take the tour" button in the header (next to theme toggle).
+43. ⏳ Verify the tour on a fresh browser profile against the live A6000 deploy — every selector resolves, no scroll traps, console clean.
+
 ### Deferred (not blocking v1 demo)
 - ⏸ `/events` global view (cross-upload filtering)
 - ⏸ `/settings` page real content
@@ -171,7 +182,7 @@ Structured stdout logs and an optional OSS log UI for support/dev debugging. Sco
 - ⏸ SRE metrics/alerts and auditor-grade OpenSearch/Elasticsearch indexing — observability backlog, not v0 logs
 
 ### Risk watch
-- ✅ ~~The full pipeline (DeepStream → indexer → Postgres → UI) has never run together.~~ Validated 2026-04-30 on a Brev A6000: 16,526 events / 70 tracks / 4 classes (car 10,891 · road_sign 2,386 · person 2,204 · bicycle 1,045) on `115_and_HVP.mp4` (148.8 s); `max(t_seconds)=148.67` matched clip duration. API endpoints (`/api/uploads`, `/api/uploads/:id/events?group=tracks`) returned correct shape. Cold-deploy traps catalogued in [`docs/gotchas.md`](docs/gotchas.md).
+- ✅ ~~The full pipeline (DeepStream → indexer → Postgres → UI) has never run together.~~ Validated 2026-04-30 on a Brev A6000: 16,526 events / 70 tracks / 4 classes (car 10,891 · road_sign 2,386 · person 2,204 · bicycle 1,045) on `115_and_HVP.mp4` (148.8 s); `max(t_seconds)=148.67` matched clip duration. API endpoints (`/api/uploads`, `/api/uploads/:id/events?group=tracks`) returned correct shape. Cold-deploy traps catalogued in [`gotchas.md`](gotchas.md).
 - TRT engine cold build (~3.5min) is one-time-per-arch — document in `deploy.md` so the first deploy doesn't look broken.
 - ✅ ~~ffprobe inside the slim Python image — not yet exercised.~~ Exercised 2026-04-30; parsed 1280×720 @ 15 fps cleanly on upload.
 - **Rule-pack false positives** — IOU tracker drops/swaps during occlusion will look like collisions. Mitigation: require sustained overlap (≥3 frames) + co-stop, not overlap alone. NvDCF swap is the v1.5 fix.

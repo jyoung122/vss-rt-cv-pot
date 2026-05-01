@@ -28,7 +28,7 @@ docs/
 
 Read [`../AGENTS.md`](../AGENTS.md) first — it has the repo map, vocabulary lock (Event / Incident / Scenario), UI conventions (shadcn-only), and backend conventions (raw SQL, asyncpg, no ORM).
 
-Then check [`../V1_PLAN.md`](../V1_PLAN.md) for the burn list and locked decisions. The "Services" table near the top links directly to each service doc.
+Then check [`./V1_PLAN.md`](./V1_PLAN.md) for the burn list and locked decisions. The "Services" table near the top links directly to each service doc.
 
 For what is actually running on `main` right now: [`../CURRENT_STATE.md`](../CURRENT_STATE.md).
 
@@ -40,7 +40,7 @@ For what is actually running on `main` right now: [`../CURRENT_STATE.md`](../CUR
 |---|---|
 | [`../AGENTS.md`](../AGENTS.md) | Repo map, conventions, run commands — read before editing |
 | [`../README.md`](../README.md) | User-facing setup and run flow |
-| [`../V1_PLAN.md`](../V1_PLAN.md) | Roadmap, phases, burn list, locked decisions |
+| [`./V1_PLAN.md`](./V1_PLAN.md) | Roadmap, phases, burn list, locked decisions |
 | [`../CURRENT_STATE.md`](../CURRENT_STATE.md) | Snapshot of what is running on `main` |
 | [`../FUTURE_STATE_POT_ARCHIVED.md`](../FUTURE_STATE_POT_ARCHIVED.md) | DeepStream config reference from the POT era (archived, still accurate) |
 

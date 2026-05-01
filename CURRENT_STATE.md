@@ -1,6 +1,6 @@
 # SSI AIMS — Current State
 
-Snapshot of what is actually running on `main`. For the roadmap and burn list see [`./V1_PLAN.md`](./V1_PLAN.md). For onboarding see [`README.md`](./README.md). For DeepStream-only reference material from the POT era see [`FUTURE_STATE_POT_ARCHIVED.md`](./FUTURE_STATE_POT_ARCHIVED.md).
+Snapshot of what is actually running on `main`. For the roadmap and burn list see [`docs/V1_PLAN.md`](docs/V1_PLAN.md). For onboarding see [`README.md`](./README.md). For DeepStream-only reference material from the POT era see [`FUTURE_STATE_POT_ARCHIVED.md`](./FUTURE_STATE_POT_ARCHIVED.md).
 
 ---
 
@@ -104,7 +104,7 @@ Backend unit tests (`backend/tests/test_incident_worker.py`, 4 tests) verify rul
 
 ## Next steps
 
-See [`V1_PLAN.md`](V1_PLAN.md) for the burn list. Landed: Phases 1 (rebrand), 2 (Uploads UI + detail page + Postgres + event indexer), 3 (healthchecks, `redis-commander` drop, `.env.example`), 5 (deploy runbook + Brev validation), 7 (rule-based incident detection), 8 (Cosmos-Reason2-2B VLM validation — items 25–30 shipped; spike #24 deferred to docs), 9 (structured logging + observability overlay). Up next, in priority order:
+See [`docs/V1_PLAN.md`](docs/V1_PLAN.md) for the burn list. Landed: Phases 1 (rebrand), 2 (Uploads UI + detail page + Postgres + event indexer), 3 (healthchecks, `redis-commander` drop, `.env.example`), 5 (deploy runbook + Brev validation), 7 (rule-based incident detection), 8 (Cosmos-Reason2-2B VLM validation — items 25–30 shipped; spike #24 deferred to docs), 9 (structured logging + observability overlay). Up next, in priority order:
 
 1. **Phase 4** — repo rename: done. Dir is now `aims/`; README/compose/planning cross-refs updated.
 2. **Phase 6** — demo acceptance: run 8 acceptance criteria on the live VM, capture screenshots, write `docs/demo-script.md`.

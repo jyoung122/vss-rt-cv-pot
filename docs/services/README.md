@@ -2,7 +2,7 @@
 
 Per-service reference for SSI AIMS. Each file covers the container/process definition, configuration, endpoints or interfaces, runbook, and known issues for one service.
 
-For the cross-service roadmap and burn list, see [`../../V1_PLAN.md`](../../V1_PLAN.md). For the full deploy walkthrough, see [`../deploy/deploy.md`](../deploy/deploy.md).
+For the cross-service roadmap and burn list, see [`../V1_PLAN.md`](../V1_PLAN.md). For the full deploy walkthrough, see [`../deploy/deploy.md`](../deploy/deploy.md).
 
 ---
 

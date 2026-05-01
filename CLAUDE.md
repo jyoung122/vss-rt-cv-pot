@@ -26,6 +26,6 @@ Read [`AGENTS.md`](AGENTS.md) first — that's the canonical agent guide for thi
 
 ## When in doubt
 
-- Check [`../V1_PLAN.md`](../V1_PLAN.md) for what's done, in flight, and deferred.
+- Check [`docs/V1_PLAN.md`](docs/V1_PLAN.md) for what's done, in flight, and deferred.
 - Check [`AGENTS.md`](AGENTS.md) for conventions and repo map.
 - Check [`README.md`](README.md) for the user-facing run/setup flow.

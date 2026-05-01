@@ -113,7 +113,7 @@ curl -X POST http://localhost:8080/api/uploads/synth-collision/analyze
 
 ## Where to look first
 
-- Roadmap + burn list: [`../V1_PLAN.md`](../V1_PLAN.md)
+- Roadmap + burn list: [`docs/V1_PLAN.md`](docs/V1_PLAN.md)
 - Onboarding + architecture: [`README.md`](README.md)
 - Current state snapshot: [`CURRENT_STATE.md`](CURRENT_STATE.md)
 - Migration history (POT → AIMS): [`../MIGRATION_MAP.md`](../MIGRATION_MAP.md)

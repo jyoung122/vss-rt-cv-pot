@@ -278,5 +278,5 @@ Postgres data persists in the `aims-pg-data` volume. Redis is ephemeral. Video f
 - `deepstream/config/` — perception config, tracker, msgconv (DeepStream side)
 - `deepstream/init/ds-start.sh` — DeepStream entrypoint (`metropolis_perception_app`)
 - `tools/synthetic_mdx_publisher.py` — GPU-free event generator
-- `../V1_PLAN.md` — phase status, burn list, deferred items
+- `docs/V1_PLAN.md` — phase status, burn list, deferred items
 - `FUTURE_STATE_POT_ARCHIVED.md` — DeepStream reference material from the POT era
