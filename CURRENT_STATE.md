@@ -106,7 +106,7 @@ Backend unit tests (`backend/tests/test_incident_worker.py`, 4 tests) verify rul
 
 See [`V1_PLAN.md`](V1_PLAN.md) for the burn list. Landed: Phases 1 (rebrand), 2 (Uploads UI + detail page + Postgres + event indexer), 3 (healthchecks, `redis-commander` drop, `.env.example`), 5 (deploy runbook + Brev validation), 7 (rule-based incident detection), 8 (Cosmos-Reason2-2B VLM validation — items 25–30 shipped; spike #24 deferred to docs), 9 (structured logging + observability overlay). Up next, in priority order:
 
-1. **Phase 4** — repo rename: `git mv vss-rt-cv-pot aims`, update README/compose/planning cross-refs.
+1. **Phase 4** — repo rename: done. Dir is now `aims/`; README/compose/planning cross-refs updated.
 2. **Phase 6** — demo acceptance: run 8 acceptance criteria on the live VM, capture screenshots, write `docs/demo-script.md`.
 3. Remaining Phase 3 item — TRT engine cache as a named volume (drops the `chmod -R 777 data/models` step).
 4. Phase 8 spike doc (#24) — `docs/cosmos-spike.md` with endpoint contract / VRAM / cold-start / Ampere compat (informational; the code already ships with `VLM_ENABLED=false` as the safe default).

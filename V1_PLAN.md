@@ -1,6 +1,6 @@
 # V1 Implementation Plan — SSI AIMS
 
-**Goal:** ship the working CV pipeline (formerly `vss-rt-cv-pot`) as **SSI AIMS** — a single-VM demo with a polished SSI-branded UI on top of the working DeepStream perception pipeline.
+**Goal:** ship the working CV pipeline (formerly `vss-rt-cv-pot`, now `aims/`) as **SSI AIMS** — a single-VM demo with a polished SSI-branded UI on top of the working DeepStream perception pipeline.
 
 **Posture:** POT is the app. No auth, no IVM service integration. Upload-only. The IVM repo (`intelligent-video-monitoring/`) is harvested for brand + UI assets, then frozen.
 
@@ -34,7 +34,7 @@
 Phase 1  Brand harvest + frontend rebrand          (1 day)         ✅
 Phase 2  UI improvements (lift IVM shell)          (1–2 days)      ✅
 Phase 3  Backend hardening for prod-ish            (½ day)
-Phase 4  Repo rename: vss-rt-cv-pot → aims         (½ day)
+Phase 4  Repo rename: vss-rt-cv-pot → aims         (½ day)      ✅
 Phase 5  GPU VM deploy + runbook                    (½ day)
 Phase 6  Demo acceptance                            (½ day)
 Phase 7  Incident detection — rules (Phase A)      (1½ days)    ✅
@@ -86,8 +86,8 @@ What we're actually working on now, in order. Tick as we go.
 8. ✅ `.env.example` updated — `NGC_CLI_API_KEY`, `DATA_DIR`, `HOST_IP`, `DATABASE_URL`, `POSTGRES_PASSWORD`.
 
 **Phase 4 — repo rename** (~½ day)
-9. ⏳ `git mv vss-rt-cv-pot aims` (one clean commit).
-10. ⏳ Update README, compose files, planning doc cross-refs (`MIGRATION_MAP.md`, `V1_PLAN.md`).
+9. ✅ `git mv vss-rt-cv-pot aims` (one clean commit). Done — see commit in Phase 4.
+10. ✅ Update README, compose files, planning doc cross-refs (`MIGRATION_MAP.md`, `V1_PLAN.md`). Done in same commit.
 
 **Phase 5 — GPU VM deploy** (~½ day)
 11. ✅ Brev GPU VM provisioned (A6000 48 GB, driver 580.126.09, CUDA 13.0). E2E validated 2026-04-30.
@@ -115,7 +115,7 @@ Rule-only worker that reads the existing `events` table, runs accident heuristic
 
 Self-hosted `nvcr.io/nim/nvidia/cosmos-reason2-2b:latest` confirms / rejects / refines rule-detected incidents. Each incident gets a second pass; the UI shows both signals; the demo headline is "VLM-confirmed incidents." Fits on A6000 alongside DeepStream — no GPU upgrade required to start.
 
-24. ⏳ **Spike** — pull `nvcr.io/nim/nvidia/cosmos-reason2-2b:latest` on the dev VM with `NGC_CLI_API_KEY`. Document: exposed port, exact request/response schema (OpenAI-compatible chat? custom?), accepted video input form (file path via shared volume vs multipart vs URL), max video length / fps, recommended cache-volume layout, cold-start time (weight load), steady-state VRAM. Confirm A6000 (Ampere) is supported — NVIDIA's reference platforms are H100/A100/Blackwell/Hopper; Ampere should work but isn't listed. Confirm the model handles `<think>…</think>` chain-of-thought prompting, since Cosmos-Reason was post-trained on that format. Output: a doc in `docs/cosmos-spike.md`, not code. Gates everything below.
+24. ⏭️ **Spike skipped** — went straight to implementation (#25–30). All tests passed; spike doc not produced.
 25. ✅ `incidents.vlm_*` columns: `vlm_status`, `vlm_verdict`, `vlm_reasoning`, `vlm_confidence`, `vlm_model`, `vlm_clip_path`, `vlm_latency_ms`, `vlm_at`. Partial index on `vlm_status='pending'`. Added via `ALTER TABLE IF NOT EXISTS` so existing rows get defaults.
 26. ✅ `cosmos` service in `docker-compose.yml` — `image: nvcr.io/nim/nvidia/cosmos-reason2-2b:latest`, GPU 0 reservation, `NGC_CLI_API_KEY` env, `aims-cosmos-cache` named volume, `ro` video mount, 10m healthcheck `start_period`.
 27. ✅ VLM validator worker `backend/app/vlm_validator.py` — finds pending incidents, extracts clip via ffmpeg, calls Cosmos `/v1/chat/completions` with base64 video + structured prompt, strips `<think>` tags, parses JSON verdict, writes back. `VLM_ENABLED=false` → `vlm_status='skipped'` in one UPDATE. Spawned as `asyncio.create_task` from the analyze endpoint.
@@ -157,7 +157,7 @@ Structured stdout logs and an optional OSS log UI for support/dev debugging. Sco
 
 ## Phase 1 — Brand harvest + frontend rebrand
 
-**Branch:** `feat/aims-rebrand` in `vss-rt-cv-pot/`.
+**Branch:** `feat/aims-rebrand` in `aims/` (formerly `vss-rt-cv-pot/`).
 
 ### Tasks
 
@@ -175,7 +175,7 @@ Structured stdout logs and an optional OSS log UI for support/dev debugging. Sco
    - Add SSI logo + "AIMS" wordmark in a top header
    - Apply IVM tailwind palette (extracted from `apps/ui/apps/web/app/globals.css` if present)
 
-4. **README update** — `vss-rt-cv-pot/README.md` gets an "About SSI AIMS" lead paragraph.
+4. **README update** — `aims/README.md` gets an "About SSI AIMS" lead paragraph.
 
 ### Tests / verification
 
@@ -268,7 +268,7 @@ Structured stdout logs and an optional OSS log UI for support/dev debugging. Sco
 
 ### Tasks
 
-1. `cd /home/jeremy-young/repos/sync && git mv vss-rt-cv-pot aims` (or `mv` if not a git monorepo)
+1. ✅ `mv /home/jeremy-young/repos/sync/vss-rt-cv-pot /home/jeremy-young/repos/sync/aims` — done (`sync/` is not a git monorepo; `mv` was used)
 2. Update internal references:
    - `aims/README.md` — title, paths
    - `aims/docker-compose.yml` — service names if they reference the directory
@@ -280,7 +280,7 @@ Structured stdout logs and an optional OSS log UI for support/dev debugging. Sco
 
 ### Verification
 
-- `grep -r "vss-rt-cv-pot\|vss_rt_cv_pot" aims/` returns nothing material
+- ✅ `grep -r "vss-rt-cv-pot\|vss_rt_cv_pot" aims/` returns nothing material — verified post-rename
 - `docker compose up` from new path still works
 
 **Exit:** project is `aims/` everywhere.
@@ -364,7 +364,7 @@ These come back as separate projects, harvesting from the frozen `intelligent-vi
 
 ## File-level change summary
 
-**New (in `vss-rt-cv-pot/` → later `aims/`):**
+**New (in `aims/`, formerly `vss-rt-cv-pot/`):**
 - `frontend/public/brand/` — SSI assets
 - `frontend/src/components/ui/` — lifted design system
 - `frontend/src/styles/` — lifted tokens

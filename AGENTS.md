@@ -1,6 +1,6 @@
 # AGENTS.md — SSI AIMS
 
-Read this before editing. The repo dir is still `vss-rt-cv-pot/` and will be renamed to `aims/` in Phase 4 (see [`../V1_PLAN.md`](../V1_PLAN.md)).
+Read this before editing. The repo dir is `aims/` (renamed from `vss-rt-cv-pot/` in Phase 4).
 
 ## What this is
 

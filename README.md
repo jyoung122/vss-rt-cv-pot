@@ -1,6 +1,6 @@
 # SSI AIMS — AI Monitoring System
 
-> Repo dir is still `vss-rt-cv-pot/` and will be renamed to `aims/` in Phase 4 of the v1 ship plan. See [`../V1_PLAN.md`](../V1_PLAN.md).
+> Repo dir is `aims/` (renamed from `vss-rt-cv-pot/` in Phase 4 of the v1 ship plan).
 
 Real-time computer vision monitoring. Upload a video, the DeepStream perception pipeline (RT-DETR / TrafficCamNet) runs detection + tracking, raw events stream to Redis, an indexer drains them into Postgres, and the Next.js UI lets you scrub the timeline and inspect per-track detections.
 
@@ -41,8 +41,8 @@ echo $NGC_CLI_API_KEY | docker login nvcr.io -u '$oauthtoken' --password-stdin
 ## Quick start (prod)
 
 ```bash
-git clone <repo-url> vss-rt-cv-pot
-cd vss-rt-cv-pot
+git clone <repo-url> aims
+cd aims
 cp .env.example .env       # fill NGC_CLI_API_KEY, HOST_IP, DATA_DIR
 chmod +x deepstream/init/ds-start.sh
 ```

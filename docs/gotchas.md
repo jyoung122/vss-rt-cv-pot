@@ -92,8 +92,8 @@ App run failed
 **Watch out.** If you `brev copy <file> aims:/path/to/data/videos`, brev treats the missing destination as a *filename* and copies your MP4 *as* `data/videos`. Pre-create the directory first, or copy with a trailing slash:
 
 ```bash
-ssh aims "mkdir -p /home/shadeform/vss-rt-cv-pot/data/videos"
-brev copy ./clip.mp4 aims:/home/shadeform/vss-rt-cv-pot/data/videos/
+ssh aims "mkdir -p /home/shadeform/aims/data/videos"
+brev copy ./clip.mp4 aims:/home/shadeform/aims/data/videos/
 ```
 
 ---
