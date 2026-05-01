@@ -57,3 +57,11 @@ ALTER TABLE incidents ADD COLUMN IF NOT EXISTS vlm_latency_ms INTEGER;
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS vlm_at         TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS incidents_vlm_pending ON incidents (video_id) WHERE vlm_status = 'pending';
+
+-- Rule configuration: user-tunable thresholds per rule type.
+-- Rows are upserted on first PUT; missing rows mean "use code defaults".
+CREATE TABLE IF NOT EXISTS rule_config (
+  rule_id    TEXT PRIMARY KEY,
+  thresholds JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

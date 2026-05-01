@@ -3,8 +3,9 @@
 Reads events for a completed video, applies pixel-space heuristics over
 per-track and pairwise signals, and upserts results into the incidents table.
 
-No calibration required — all units are in pixels/frames. Thresholds are
-module-level constants so demo tuning is easy.
+Thresholds are stored in the rule_config DB table and loaded at analysis time
+(see load_thresholds / DEFAULT_THRESHOLDS). The module-level constants below
+serve as compile-time defaults only — they are never read at runtime.
 
 Auto-trigger from event_indexer end-of-stream is not wired: the indexer has no
 clean EOS hook (it's a continuous XREADGROUP loop). Use POST /api/uploads/:id/analyze
@@ -22,33 +23,118 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Thresholds — tune these during demo prep
+# Default thresholds — used when no DB override exists.
+# Keys match the JSONB stored in rule_config.thresholds.
 # ---------------------------------------------------------------------------
 
-# Velocity signals
-VELOCITY_WINDOW_S = 0.5       # sliding window for velocity estimate (seconds)
-VELOCITY_DROP_WINDOW_S = 1.0  # look-back window for velocity_drop_ratio
-STATIONARY_VX_PX_S = 5.0     # px/s below which a track is considered stationary
+DEFAULT_THRESHOLDS: dict[str, dict[str, Any]] = {
+    "vehicle_collision": {
+        "iou_min": 0.3,
+        "iou_frames_min": 3,
+        "costop_window_s": 1.0,
+        "stationary_after_s": 3.0,
+        "velocity_drop_min": 5.0,
+    },
+    "ped_impact": {
+        "proximity_max": 0.5,
+        "proximity_frames_min": 2,
+    },
+    "stationary_vehicle": {
+        "min_s": 15.0,
+        "moved_px_s": 8.0,
+    },
+    "mass_stop": {
+        "tracks_min": 4,
+        "window_s": 2.0,
+        "drop_min": 6.0,
+    },
+}
 
-# vehicle_collision
-COLLISION_IOU_MIN = 0.3         # minimum IOU to count as overlap
-COLLISION_IOU_FRAMES_MIN = 3      # sustained overlap frames required
-COLLISION_COSTOP_WINDOW_S = 1.0   # co-stop must occur within ±1 s of overlap
-COLLISION_STATIONARY_AFTER_S = 3.0 # combined stationary duration post-overlap
-COLLISION_VELOCITY_DROP_MIN = 5.0  # velocity_drop_ratio threshold for co-stop
+# Threshold metadata for the configuration UI (label, units, type, min/max/step).
+THRESHOLD_SCHEMA: dict[str, list[dict[str, Any]]] = {
+    "vehicle_collision": [
+        {"key": "iou_min",             "label": "Min IOU overlap",          "unit": "",     "type": "float", "min": 0.05, "max": 0.95, "step": 0.05},
+        {"key": "iou_frames_min",      "label": "Sustained overlap frames",  "unit": "frames","type": "int",   "min": 1,    "max": 20,   "step": 1},
+        {"key": "costop_window_s",     "label": "Co-stop window",           "unit": "s",    "type": "float", "min": 0.5,  "max": 5.0,  "step": 0.5},
+        {"key": "stationary_after_s",  "label": "Stationary after (combined)","unit": "s",  "type": "float", "min": 1.0,  "max": 30.0, "step": 0.5},
+        {"key": "velocity_drop_min",   "label": "Velocity drop ratio",      "unit": "×",    "type": "float", "min": 1.5,  "max": 20.0, "step": 0.5},
+    ],
+    "ped_impact": [
+        {"key": "proximity_max",        "label": "Centroid proximity",       "unit": "× diag","type": "float", "min": 0.1,  "max": 2.0,  "step": 0.1},
+        {"key": "proximity_frames_min", "label": "Sustained proximity frames","unit": "frames","type": "int",   "min": 1,    "max": 10,   "step": 1},
+    ],
+    "stationary_vehicle": [
+        {"key": "min_s",       "label": "Min stationary duration", "unit": "s",    "type": "float", "min": 5.0,  "max": 120.0, "step": 5.0},
+        {"key": "moved_px_s",  "label": "Min prior velocity",      "unit": "px/s", "type": "float", "min": 1.0,  "max": 50.0,  "step": 1.0},
+    ],
+    "mass_stop": [
+        {"key": "tracks_min", "label": "Min vehicles",      "unit": "",   "type": "int",   "min": 2,   "max": 20,   "step": 1},
+        {"key": "window_s",   "label": "Time window",       "unit": "s",  "type": "float", "min": 0.5, "max": 10.0, "step": 0.5},
+        {"key": "drop_min",   "label": "Velocity drop ratio","unit": "×", "type": "float", "min": 1.5, "max": 30.0, "step": 0.5},
+    ],
+}
 
-# ped_impact
-PED_PROXIMITY_MAX = 0.5        # centroid proximity / avg-bbox-diagonal
-PED_PROXIMITY_FRAMES_MIN = 2   # sustained proximity frames required
+# Shared velocity-signal constants — not user-tunable for now.
+_VELOCITY_WINDOW_S = 0.5
+_VELOCITY_DROP_WINDOW_S = 1.0
+_STATIONARY_VX_PX_S = 5.0
 
-# stationary_vehicle
-STATIONARY_MIN_S = 15.0        # must be stationary for this long
-STATIONARY_MOVED_PX_S = 8.0    # minimum velocity at some earlier point to rule out parked cars
 
-# mass_stop
-MASS_STOP_TRACKS_MIN = 4       # minimum number of vehicles stopping together
-MASS_STOP_WINDOW_S = 2.0       # within this window
-MASS_STOP_DROP_MIN = 6.0       # velocity_drop_ratio threshold (6x drop = hard braking)
+# ---------------------------------------------------------------------------
+# Per-analysis threshold config (loaded from DB, merged with defaults)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ThresholdConfig:
+    # vehicle_collision
+    collision_iou_min: float = 0.3
+    collision_iou_frames_min: int = 3
+    collision_costop_window_s: float = 1.0
+    collision_stationary_after_s: float = 3.0
+    collision_velocity_drop_min: float = 5.0
+    # ped_impact
+    ped_proximity_max: float = 0.5
+    ped_proximity_frames_min: int = 2
+    # stationary_vehicle
+    stationary_min_s: float = 15.0
+    stationary_moved_px_s: float = 8.0
+    # mass_stop
+    mass_stop_tracks_min: int = 4
+    mass_stop_window_s: float = 2.0
+    mass_stop_drop_min: float = 6.0
+
+
+async def load_thresholds(pool) -> ThresholdConfig:
+    """Load per-rule overrides from rule_config and merge with code defaults."""
+    rows = await pool.fetch("SELECT rule_id, thresholds FROM rule_config")
+    db: dict[str, dict] = {}
+    for row in rows:
+        raw = row["thresholds"]
+        db[row["rule_id"]] = json.loads(raw) if isinstance(raw, str) else (raw or {})
+
+    def _get(rule_id: str, key: str, default):
+        return db.get(rule_id, {}).get(key, default)
+
+    vc = db.get("vehicle_collision", {})
+    pi = db.get("ped_impact", {})
+    sv = db.get("stationary_vehicle", {})
+    ms = db.get("mass_stop", {})
+    d = DEFAULT_THRESHOLDS
+
+    return ThresholdConfig(
+        collision_iou_min=float(vc.get("iou_min",            d["vehicle_collision"]["iou_min"])),
+        collision_iou_frames_min=int(vc.get("iou_frames_min",d["vehicle_collision"]["iou_frames_min"])),
+        collision_costop_window_s=float(vc.get("costop_window_s", d["vehicle_collision"]["costop_window_s"])),
+        collision_stationary_after_s=float(vc.get("stationary_after_s", d["vehicle_collision"]["stationary_after_s"])),
+        collision_velocity_drop_min=float(vc.get("velocity_drop_min",  d["vehicle_collision"]["velocity_drop_min"])),
+        ped_proximity_max=float(pi.get("proximity_max",         d["ped_impact"]["proximity_max"])),
+        ped_proximity_frames_min=int(pi.get("proximity_frames_min", d["ped_impact"]["proximity_frames_min"])),
+        stationary_min_s=float(sv.get("min_s",                 d["stationary_vehicle"]["min_s"])),
+        stationary_moved_px_s=float(sv.get("moved_px_s",       d["stationary_vehicle"]["moved_px_s"])),
+        mass_stop_tracks_min=int(ms.get("tracks_min",           d["mass_stop"]["tracks_min"])),
+        mass_stop_window_s=float(ms.get("window_s",             d["mass_stop"]["window_s"])),
+        mass_stop_drop_min=float(ms.get("drop_min",             d["mass_stop"]["drop_min"])),
+    )
 
 
 def _normalize_class(cls: str) -> str:
@@ -142,7 +228,7 @@ def _compute_signals(ts: TrackSignals, fps: float) -> None:
     times = [r.t_seconds for r in rows]
     velocity: list[float] = []
 
-    half_win = VELOCITY_WINDOW_S / 2.0
+    half_win = _VELOCITY_WINDOW_S / 2.0
 
     for row in rows:
         t = row.t_seconds
@@ -166,12 +252,12 @@ def _compute_signals(ts: TrackSignals, fps: float) -> None:
     ts.velocity = velocity
     ts.max_velocity_ever = max(velocity) if velocity else 0.0
 
-    # velocity_drop_ratio: v(t - VELOCITY_DROP_WINDOW_S) / v(t)
+    # velocity_drop_ratio: v(t - _VELOCITY_DROP_WINDOW_S) / v(t)
     velocity_drop: list[float] = []
     for i, row in enumerate(rows):
         t = row.t_seconds
         v_now = velocity[i]
-        t_prev = t - VELOCITY_DROP_WINDOW_S
+        t_prev = t - _VELOCITY_DROP_WINDOW_S
         pos = bisect_left(times, t_prev)
         candidates = []
         if pos < len(rows):
@@ -196,7 +282,7 @@ def _compute_signals(ts: TrackSignals, fps: float) -> None:
     stationary_run: list[float] = []
     run = 0.0
     for i, row in enumerate(rows):
-        if velocity[i] < STATIONARY_VX_PX_S:
+        if velocity[i] < _STATIONARY_VX_PX_S:
             dt = (row.t_seconds - rows[i - 1].t_seconds) if i > 0 else 0.0
             run += dt
         else:
@@ -228,6 +314,7 @@ def _rule_vehicle_collision(
     ts_a: TrackSignals,
     ts_b: TrackSignals,
     fps: float,
+    cfg: ThresholdConfig,
 ) -> dict[str, Any] | None:
     """Two vehicle tracks with sustained IOU overlap + simultaneous velocity collapse."""
     if _normalize_class(ts_a.cls) not in VEHICLE_CLASSES or _normalize_class(ts_b.cls) not in VEHICLE_CLASSES:
@@ -245,7 +332,7 @@ def _rule_vehicle_collision(
     current: list[float] = []
     for t in shared_times:
         iou_val = _iou(t_a[t], t_b[t])
-        if iou_val >= COLLISION_IOU_MIN:
+        if iou_val >= cfg.collision_iou_min:
             current.append(t)
         else:
             if current:
@@ -254,34 +341,30 @@ def _rule_vehicle_collision(
     if current:
         overlap_sequences.append(current)
 
-    # Need at least one sequence of COLLISION_IOU_FRAMES_MIN sustained frames
-    valid_seqs = [seq for seq in overlap_sequences if len(seq) >= COLLISION_IOU_FRAMES_MIN]
+    valid_seqs = [seq for seq in overlap_sequences if len(seq) >= cfg.collision_iou_frames_min]
     if not valid_seqs:
         return None
 
-    # Use the longest overlap sequence as the event anchor
     anchor_seq = max(valid_seqs, key=len)
     t_overlap_start = anchor_seq[0]
     t_overlap_end = anchor_seq[-1]
 
-    # Co-stop: both tracks have high velocity_drop_ratio within ±COLLISION_COSTOP_WINDOW_S
     def _has_costop(ts: TrackSignals, t_ref: float) -> tuple[bool, float]:
         window = [
             (ts.velocity_drop[i], ts.rows[i].t_seconds)
             for i in range(len(ts.rows))
-            if abs(ts.rows[i].t_seconds - t_ref) <= COLLISION_COSTOP_WINDOW_S
+            if abs(ts.rows[i].t_seconds - t_ref) <= cfg.collision_costop_window_s
         ]
         if not window:
             return False, 0.0
         peak = max(window, key=lambda x: x[0])
-        return peak[0] >= COLLISION_VELOCITY_DROP_MIN, peak[0]
+        return peak[0] >= cfg.collision_velocity_drop_min, peak[0]
 
     a_stop, a_drop = _has_costop(ts_a, t_overlap_start)
     b_stop, b_drop = _has_costop(ts_b, t_overlap_start)
     if not (a_stop and b_stop):
         return None
 
-    # Stationary duration after the overlap
     def _stationary_after(ts: TrackSignals, t_ref: float) -> float:
         post = [
             ts.stationary_run_s[i]
@@ -292,14 +375,12 @@ def _rule_vehicle_collision(
 
     stat_a = _stationary_after(ts_a, t_overlap_end)
     stat_b = _stationary_after(ts_b, t_overlap_end)
-    if stat_a + stat_b < COLLISION_STATIONARY_AFTER_S:
+    if stat_a + stat_b < cfg.collision_stationary_after_s:
         return None
 
-    # Peak IOU in anchor sequence
     iou_peak = max(_iou(t_a[t], t_b[t]) for t in anchor_seq)
 
-    # Confidence: base 0.7, scaled by iou_peak and stop sustain
-    sustain_factor = min(1.0, (stat_a + stat_b) / (COLLISION_STATIONARY_AFTER_S * 2))
+    sustain_factor = min(1.0, (stat_a + stat_b) / (cfg.collision_stationary_after_s * 2))
     confidence = min(0.95, 0.7 + 0.15 * iou_peak + 0.10 * sustain_factor)
 
     # Time span
@@ -340,6 +421,7 @@ def _rule_vehicle_collision(
 def _rule_ped_impact(
     ts_car: TrackSignals,
     ts_ped: TrackSignals,
+    cfg: ThresholdConfig,
 ) -> dict[str, Any] | None:
     """Car + person track with centroid proximity + person velocity collapse."""
     if _normalize_class(ts_car.cls) not in CAR_CLASSES or _normalize_class(ts_ped.cls) not in PED_CLASSES:
@@ -351,7 +433,6 @@ def _rule_ped_impact(
     if not shared_times:
         return None
 
-    # Centroid proximity normalised by average bbox diagonal
     prox_frames: list[float] = []
     for t in shared_times:
         rc = t_car[t]
@@ -361,21 +442,20 @@ def _rule_ped_impact(
             continue
         dist = math.hypot(rc.cx - rp.cx, rc.cy - rp.cy)
         prox = dist / avg_diag
-        if prox < PED_PROXIMITY_MAX:
+        if prox < cfg.ped_proximity_max:
             prox_frames.append(t)
 
-    if len(prox_frames) < PED_PROXIMITY_FRAMES_MIN:
+    if len(prox_frames) < cfg.ped_proximity_frames_min:
         return None
 
     t_impact = prox_frames[0]
 
-    # Person track terminates or velocity drops to ~0 within 1s of impact
     post_ped = [
         (ts_ped.velocity[i], ts_ped.rows[i].t_seconds)
         for i in range(len(ts_ped.rows))
         if ts_ped.rows[i].t_seconds >= t_impact and ts_ped.rows[i].t_seconds <= t_impact + 1.0
     ]
-    ped_stops = any(v < STATIONARY_VX_PX_S for v, _ in post_ped)
+    ped_stops = any(v < _STATIONARY_VX_PX_S for v, _ in post_ped)
     ped_terminates = not any(r.t_seconds > t_impact + 1.0 for r in ts_ped.rows)
 
     if not (ped_stops or ped_terminates):
@@ -411,18 +491,16 @@ def _rule_ped_impact(
     }
 
 
-def _rule_stationary_vehicle(ts: TrackSignals) -> dict[str, Any] | None:
-    """Single car track that stays stationary for STATIONARY_MIN_S after having moved."""
+def _rule_stationary_vehicle(ts: TrackSignals, cfg: ThresholdConfig) -> dict[str, Any] | None:
+    """Single car track that stays stationary for cfg.stationary_min_s after having moved."""
     if _normalize_class(ts.cls) not in CAR_CLASSES:
         return None
 
-    # Must have moved at some point (filter parked cars)
-    if ts.max_velocity_ever < STATIONARY_MOVED_PX_S:
+    if ts.max_velocity_ever < cfg.stationary_moved_px_s:
         return None
 
-    # Find the longest stationary run
     max_stat = max(ts.stationary_run_s) if ts.stationary_run_s else 0.0
-    if max_stat < STATIONARY_MIN_S:
+    if max_stat < cfg.stationary_min_s:
         return None
 
     # Find where the run starts
@@ -458,36 +536,34 @@ def _rule_stationary_vehicle(ts: TrackSignals) -> dict[str, Any] | None:
 def _rule_mass_stop(
     track_signals: list[TrackSignals],
     fps: float,
+    cfg: ThresholdConfig,
 ) -> list[dict[str, Any]]:
-    """3+ vehicle tracks with high velocity_drop_ratio within a 2-second window."""
+    """4+ vehicle tracks with high velocity_drop_ratio within a configurable window."""
     vehicles = [ts for ts in track_signals if _normalize_class(ts.cls) in VEHICLE_CLASSES]
-    if len(vehicles) < MASS_STOP_TRACKS_MIN:
+    if len(vehicles) < cfg.mass_stop_tracks_min:
         return []
 
-    # Collect all (t, track_id, drop) triples above threshold
     stop_events: list[tuple[float, int, float]] = []
     for ts in vehicles:
         for i, drop in enumerate(ts.velocity_drop):
-            if drop >= MASS_STOP_DROP_MIN:
+            if drop >= cfg.mass_stop_drop_min:
                 stop_events.append((ts.rows[i].t_seconds, ts.track_id, drop))
 
     stop_events.sort()
     if not stop_events:
         return []
 
-    # Sliding window: find windows of MASS_STOP_WINDOW_S with ≥ MASS_STOP_TRACKS_MIN unique tracks
     results: list[dict[str, Any]] = []
     seen_windows: set[tuple[float, frozenset[int]]] = set()
 
     for anchor_idx, (t_anchor, _, _) in enumerate(stop_events):
         window = [(t, tid, drop) for t, tid, drop in stop_events
-                  if t_anchor <= t <= t_anchor + MASS_STOP_WINDOW_S]
+                  if t_anchor <= t <= t_anchor + cfg.mass_stop_window_s]
         track_ids_in_window = {tid for _, tid, _ in window}
-        if len(track_ids_in_window) < MASS_STOP_TRACKS_MIN:
+        if len(track_ids_in_window) < cfg.mass_stop_tracks_min:
             continue
 
-        # Bucket by window-width so the same track-set only fires once per window
-        key = (round(t_anchor / MASS_STOP_WINDOW_S), frozenset(track_ids_in_window))
+        key = (round(t_anchor / cfg.mass_stop_window_s), frozenset(track_ids_in_window))
         if key in seen_windows:
             continue
         seen_windows.add(key)
@@ -511,7 +587,7 @@ def _rule_mass_stop(
             "bbox_union": _bbox_union(all_rows),
             "metadata": {
                 "track_count": len(track_ids_in_window),
-                "window_s": MASS_STOP_WINDOW_S,
+                "window_s": cfg.mass_stop_window_s,
                 "velocity_drops": {tid: round(drop, 2) for _, tid, drop in window},
             },
         })
@@ -549,36 +625,32 @@ def _build_track_signals(rows: list[Any], fps: float) -> list[TrackSignals]:
     return track_signals
 
 
-def _detect_incidents(rows: list[Any], fps: float) -> list[dict[str, Any]]:
+def _detect_incidents(rows: list[Any], fps: float, cfg: ThresholdConfig) -> list[dict[str, Any]]:
     track_signals = _build_track_signals(rows, fps)
 
     incidents: list[dict[str, Any]] = []
 
-    # Pairwise rules
     for i in range(len(track_signals)):
         for j in range(i + 1, len(track_signals)):
             ts_a, ts_b = track_signals[i], track_signals[j]
 
-            col = _rule_vehicle_collision(ts_a, ts_b, fps)
+            col = _rule_vehicle_collision(ts_a, ts_b, fps, cfg)
             if col:
                 incidents.append(col)
 
-            # Try ped_impact both ways (which is car, which is ped)
-            ped = _rule_ped_impact(ts_a, ts_b)
+            ped = _rule_ped_impact(ts_a, ts_b, cfg)
             if ped:
                 incidents.append(ped)
-            ped = _rule_ped_impact(ts_b, ts_a)
+            ped = _rule_ped_impact(ts_b, ts_a, cfg)
             if ped:
                 incidents.append(ped)
 
-    # Per-track rules
     for ts in track_signals:
-        stat = _rule_stationary_vehicle(ts)
+        stat = _rule_stationary_vehicle(ts, cfg)
         if stat:
             incidents.append(stat)
 
-    # Multi-track rules
-    incidents.extend(_rule_mass_stop(track_signals, fps))
+    incidents.extend(_rule_mass_stop(track_signals, fps, cfg))
 
     return incidents
 
@@ -643,6 +715,7 @@ async def _refresh_incidents(conn, video_id: str, incidents: list[dict[str, Any]
 async def run_incident_detection(video_id: str, pool) -> int:
     """Detect incidents for one video_id and replace prior rule results."""
     t0 = time.monotonic()
+    cfg = await load_thresholds(pool)
     async with pool.acquire() as conn:
         async with conn.transaction():
             rows, fps = await _load_detection_inputs(conn, video_id)
@@ -650,7 +723,7 @@ async def run_incident_detection(video_id: str, pool) -> int:
                 "incident_worker.detect.start",
                 extra={"video_id": video_id, "event_count": len(rows), "fps": fps},
             )
-            incidents = _detect_incidents(rows, fps) if rows else []
+            incidents = _detect_incidents(rows, fps, cfg) if rows else []
             count = await _refresh_incidents(conn, video_id, incidents)
             log.info(
                 "incident_worker.detect.complete",

@@ -3,14 +3,20 @@
 import asyncio
 import json
 import logging
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from app.db import get_pool
 from app.logging_config import Timer, log_context, new_run_id
 
 router = APIRouter()
 log = logging.getLogger(__name__)
+
+
+class ThresholdsBody(BaseModel):
+    thresholds: dict[str, Any]
 
 
 def _jsonb(value):
@@ -46,6 +52,73 @@ def _incident_record(row) -> dict:
 
 
 _RULE_ORDER = ["vehicle_collision", "ped_impact", "stationary_vehicle", "mass_stop"]
+_VALID_RULES = set(_RULE_ORDER)
+
+
+@router.get("/api/rules/{rule_id}/thresholds")
+async def get_rule_thresholds(rule_id: str):
+    """Return current thresholds for a rule, merged with code defaults."""
+    if rule_id not in _VALID_RULES:
+        raise HTTPException(status_code=404, detail=f"Unknown rule: {rule_id}")
+    from app.incident_worker import DEFAULT_THRESHOLDS, THRESHOLD_SCHEMA
+    pool = get_pool()
+    row = await pool.fetchrow("SELECT thresholds, updated_at FROM rule_config WHERE rule_id=$1", rule_id)
+    overrides: dict = {}
+    if row:
+        raw = row["thresholds"]
+        overrides = json.loads(raw) if isinstance(raw, str) else (raw or {})
+    defaults = DEFAULT_THRESHOLDS[rule_id]
+    merged = {**defaults, **overrides}
+    return {
+        "rule_id": rule_id,
+        "thresholds": merged,
+        "defaults": defaults,
+        "schema": THRESHOLD_SCHEMA[rule_id],
+        "updated_at": row["updated_at"].isoformat() if row else None,
+    }
+
+
+@router.put("/api/rules/{rule_id}/thresholds")
+async def put_rule_thresholds(rule_id: str, body: ThresholdsBody):
+    """Upsert threshold overrides for a rule. Only recognized keys are stored."""
+    if rule_id not in _VALID_RULES:
+        raise HTTPException(status_code=404, detail=f"Unknown rule: {rule_id}")
+    from app.incident_worker import DEFAULT_THRESHOLDS, THRESHOLD_SCHEMA
+    valid_keys = {s["key"] for s in THRESHOLD_SCHEMA[rule_id]}
+    filtered = {k: v for k, v in body.thresholds.items() if k in valid_keys}
+    pool = get_pool()
+    row = await pool.fetchrow(
+        """
+        INSERT INTO rule_config (rule_id, thresholds)
+        VALUES ($1, $2::jsonb)
+        ON CONFLICT (rule_id) DO UPDATE
+            SET thresholds = $2::jsonb, updated_at = now()
+        RETURNING updated_at
+        """,
+        rule_id,
+        json.dumps(filtered),
+    )
+    log.info("rules.thresholds.updated", extra={"rule_id": rule_id, "keys": list(filtered.keys())})
+    return {
+        "rule_id": rule_id,
+        "thresholds": {**DEFAULT_THRESHOLDS[rule_id], **filtered},
+        "updated_at": row["updated_at"].isoformat(),
+    }
+
+
+@router.post("/api/rules/{rule_id}/thresholds/reset")
+async def reset_rule_thresholds(rule_id: str):
+    """Delete any DB overrides, reverting to code defaults."""
+    if rule_id not in _VALID_RULES:
+        raise HTTPException(status_code=404, detail=f"Unknown rule: {rule_id}")
+    from app.incident_worker import DEFAULT_THRESHOLDS
+    pool = get_pool()
+    await pool.execute("DELETE FROM rule_config WHERE rule_id=$1", rule_id)
+    log.info("rules.thresholds.reset", extra={"rule_id": rule_id})
+    return {"rule_id": rule_id, "thresholds": DEFAULT_THRESHOLDS[rule_id], "updated_at": None}
+
+
+
 _RULE_SEVERITY = {
     "vehicle_collision": "high",
     "ped_impact": "high",
@@ -55,9 +128,19 @@ _RULE_SEVERITY = {
 
 
 @router.get("/api/incidents/catalog")
-async def get_incident_catalog():
-    """Aggregate stats per rule type across all videos, including 5 most-recent incidents each."""
+async def get_incident_catalog():  # noqa: C901
+    """Aggregate stats per rule type, current thresholds, and 5 most-recent incidents each."""
+    from app.incident_worker import DEFAULT_THRESHOLDS, THRESHOLD_SCHEMA
     pool = get_pool()
+
+    # Load all rule_config rows in one query
+    cfg_rows = await pool.fetch("SELECT rule_id, thresholds, updated_at FROM rule_config")
+    cfg_map: dict[str, dict] = {}
+    cfg_updated: dict[str, str] = {}
+    for cr in cfg_rows:
+        raw = cr["thresholds"]
+        cfg_map[cr["rule_id"]] = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        cfg_updated[cr["rule_id"]] = cr["updated_at"].isoformat()
 
     agg_rows = await pool.fetch(
         """
@@ -97,6 +180,10 @@ async def get_incident_catalog():
             rule_id,
         ) if total > 0 else []
 
+        defaults = DEFAULT_THRESHOLDS[rule_id]
+        overrides = cfg_map.get(rule_id, {})
+        merged_thresholds = {**defaults, **overrides}
+
         catalog.append({
             "rule_id": rule_id,
             "severity": _RULE_SEVERITY.get(rule_id, "medium"),
@@ -107,6 +194,9 @@ async def get_incident_catalog():
             "vlm_pending": int(row["vlm_pending"]) if row else 0,
             "false_positive_rate": round(vlm_rejected / vlm_done, 3) if vlm_done > 0 else None,
             "last_detected_at": row["last_detected_at"].isoformat() if row and row["last_detected_at"] else None,
+            "thresholds": merged_thresholds,
+            "threshold_schema": THRESHOLD_SCHEMA[rule_id],
+            "thresholds_updated_at": cfg_updated.get(rule_id),
             "recent_incidents": [
                 {
                     "id": str(r["id"]),
