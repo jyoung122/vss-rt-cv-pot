@@ -3,6 +3,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Circle } from 'lucide-react'
 
+import { createLogger } from '@/lib/logger'
+
+const log = createLogger('components.event-feed')
+
 interface DetectionObject {
   type: string
   id: string
@@ -43,7 +47,7 @@ export default function EventFeed({ wsUrl, resetKey }: EventFeedProps) {
 
         ws.onopen = () => {
           setIsConnected(true)
-          console.log('WebSocket connected')
+          log.info('websocket.events.connected', { ws_url: wsUrl })
         }
 
         ws.onmessage = (event) => {
@@ -90,25 +94,25 @@ export default function EventFeed({ wsUrl, resetKey }: EventFeedProps) {
               el.scrollTop = 0
             }
           } catch (err) {
-            console.error('Failed to parse event:', err, event.data)
+            log.error('websocket.events.parse_failed', { error: err, raw_event: event.data })
           }
         }
 
         ws.onerror = (error) => {
-          console.error('WebSocket error:', error)
+          log.error('websocket.events.error', { error, ws_url: wsUrl })
           setIsConnected(false)
         }
 
         ws.onclose = () => {
           setIsConnected(false)
-          console.log('WebSocket disconnected')
+          log.info('websocket.events.disconnected', { ws_url: wsUrl })
           // Reconnect with 3s backoff
           reconnectTimeoutRef.current = setTimeout(connectWebSocket, 3000)
         }
 
         wsRef.current = ws
       } catch (err) {
-        console.error('Failed to connect WebSocket:', err)
+        log.error('websocket.events.connect_failed', { error: err, ws_url: wsUrl })
         reconnectTimeoutRef.current = setTimeout(connectWebSocket, 3000)
       }
     }

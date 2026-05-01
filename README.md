@@ -119,6 +119,31 @@ docker compose exec redis redis-cli XREAD COUNT 5 STREAMS mdx-raw 0
 
 Redis Commander (stream UI): `http://<HOST_IP>:8081` (will be dropped from the prod compose in Phase 3).
 
+### Support/dev log UI
+
+Structured app logs go to Docker stdout. To view them in Grafana via Loki, start the optional observability overlay:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
+```
+
+Open Grafana at `http://<HOST_IP>:3002` and sign in with `admin` / `admin` unless overridden in `.env`. The provisioned dashboard is **AIMS / AIMS Support/Dev Logs**.
+
+Grafana also provisions one service-specific log page per Loki `service` label, for example **AIMS Service Logs - AIMS Backend**, **AIMS Service Logs - DeepStream vss-rt-cv**, **AIMS Service Logs - Redis**, and **AIMS Service Logs - Postgres**. Regenerate those dashboard JSON files after changing the service list:
+
+```bash
+python3 observability/grafana/generate_service_dashboards.py
+docker compose -f docker-compose.yml -f docker-compose.observability.yml restart grafana
+```
+
+For the no-GPU dev stack:
+
+```bash
+docker compose -f docker-compose.dev.yml -f docker-compose.observability.yml up -d
+```
+
+Loki label discipline is intentionally low-cardinality: `service`, `env`, `level`, and `logger`. Query `video_id`, `run_id`, and `request_id` by parsing JSON fields in Grafana rather than promoting them to labels.
+
 ---
 
 ## Synthetic publisher

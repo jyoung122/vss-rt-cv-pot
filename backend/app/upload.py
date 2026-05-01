@@ -2,12 +2,14 @@ import os
 import re
 import asyncio
 import json
+import logging
 import time
 import subprocess
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, Form, HTTPException
 import httpx
 
+from app.logging_config import Timer, log_context, new_run_id
 from app.sdr import remove_active_stream, register_stream
 from app.redis_client import clear_stream
 from app.db import get_pool
@@ -19,6 +21,7 @@ DOCKER_SOCK = "/var/run/docker.sock"
 REDIS_URL = f"redis://{os.getenv('REDIS_HOST', 'redis')}:{os.getenv('REDIS_PORT', '6379')}"
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 
 async def _docker_api(method: str, path: str, body: dict | None = None) -> int:
@@ -50,14 +53,14 @@ async def _get_nvstreamer_rtsp_url(filename: str) -> str | None:
                         if stream.get("url", "").endswith(f"/{filename}"):
                             return stream["url"]
         except Exception as e:
-            print(f"Error querying NVStreamer streams: {e}")
+            log.warning("nvstreamer.streams.query_failed", extra={"error": str(e)})
     return None
 
 
 async def _restart_container(name: str) -> None:
     status = await _docker_api("POST", f"/containers/{name}/restart?t=5")
     if status not in (204, 304):
-        print(f"Warning: restart {name} returned HTTP {status}")
+        log.warning("docker.container.restart.degraded", extra={"container": name, "status_code": status})
 
 
 async def _update_vss_rt_cv_stream(rtsp_url: str) -> None:
@@ -78,7 +81,7 @@ async def _update_vss_rt_cv_stream(rtsp_url: str) -> None:
         new_env = [e for e in env if not e.startswith("STREAM_URI=")]
         new_env.append(f"STREAM_URI={rtsp_url}")
     except Exception as e:
-        print(f"Error reading vss-rt-cv config: {e}")
+        log.warning("docker.container.config.read_failed", extra={"container": "vss-rt-cv", "error": str(e)})
         return
 
     # Docker doesn't support updating env vars on a running container.
@@ -107,7 +110,7 @@ def _probe_video(path: Path) -> tuple[float | None, int | None, int | None, floa
             return None, None, None, None
         info = json.loads(result.stdout)
     except Exception as e:
-        print(f"ffprobe error: {e}")
+        log.warning("ffprobe.probe_failed", extra={"error": str(e)})
         return None, None, None, None
 
     duration_s: float | None = None
@@ -153,58 +156,86 @@ async def upload_video(file: UploadFile, prompt: str | None = Form(default=None)
     raw_stem = Path(file.filename).stem
     safe_stem = re.sub(r"[^a-zA-Z0-9_-]", "_", raw_stem)
     video_id = f"{safe_stem}-{int(time.time())}"
+    run_id = new_run_id()
 
-    file_path = video_dir / f"{video_id}{ext}"
-    written = 0
-    with open(file_path, "wb") as f:
-        while chunk := await file.read(1024 * 1024):
-            f.write(chunk)
-            written += len(chunk)
+    with log_context(run_id=run_id, video_id=video_id):
+        timer = Timer()
+        log.info(
+            "upload.run.start",
+            extra={"original_filename": file.filename, "content_type": file.content_type},
+        )
 
-    if written == 0:
-        file_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail="File is empty")
+        file_path = video_dir / f"{video_id}{ext}"
+        written = 0
+        with open(file_path, "wb") as f:
+            while chunk := await file.read(1024 * 1024):
+                f.write(chunk)
+                written += len(chunk)
 
-    # Probe video metadata
-    duration_s, width, height, fps = _probe_video(file_path)
+        if written == 0:
+            file_path.unlink(missing_ok=True)
+            log.warning("upload.file.empty", extra={"original_filename": file.filename})
+            raise HTTPException(status_code=400, detail="File is empty")
 
-    # Insert into Postgres
-    pool = get_pool()
-    await pool.execute(
-        """
-        INSERT INTO uploads (video_id, original_filename, prompt, duration_s, width, height, fps, size_bytes)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        """,
-        video_id,
-        file.filename,
-        prompt,
-        duration_s,
-        width,
-        height,
-        fps,
-        written,
-    )
+        # Probe video metadata
+        duration_s, width, height, fps = _probe_video(file_path)
+        log.info(
+            "upload.metadata.probed",
+            extra={
+                "duration_s": duration_s,
+                "width": width,
+                "height": height,
+                "fps": fps,
+                "size_bytes": written,
+            },
+        )
 
-    # Set current_video_id in Redis for the event indexer
-    import redis.asyncio as aioredis
-    r = aioredis.from_url(REDIS_URL, decode_responses=True)
-    async with r:
-        await r.set("current_video_id", video_id)
+        # Insert into Postgres
+        pool = get_pool()
+        await pool.execute(
+            """
+            INSERT INTO uploads (video_id, original_filename, prompt, duration_s, width, height, fps, size_bytes)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            """,
+            video_id,
+            file.filename,
+            prompt,
+            duration_s,
+            width,
+            height,
+            fps,
+            written,
+        )
 
-    stream_url = f"file:///data/videos/{video_id}{ext}"
+        # Set current_video_id in Redis for the event indexer
+        import redis.asyncio as aioredis
+        r = aioredis.from_url(REDIS_URL, decode_responses=True)
+        async with r:
+            await r.set("current_video_id", video_id)
+        log.info("upload.current_video.set")
 
-    # Write stream URL for ds-start.sh
-    url_file = Path(DATA_DIR) / "videos" / "current_stream_url.txt"
-    url_file.write_text(stream_url)
+        stream_url = f"file:///data/videos/{video_id}{ext}"
 
-    await remove_active_stream()
-    await register_stream(video_id, stream_url)
-    await _update_vss_rt_cv_stream(stream_url)
+        # Write stream URL for ds-start.sh
+        url_file = Path(DATA_DIR) / "videos" / "current_stream_url.txt"
+        url_file.write_text(stream_url)
 
-    # Fetch the row to return canonical UploadRecord
-    row = await pool.fetchrow(
-        "SELECT * FROM uploads WHERE video_id=$1", video_id
-    )
+        await remove_active_stream()
+        await register_stream(video_id, stream_url)
+        await _update_vss_rt_cv_stream(stream_url)
+
+        # Fetch the row to return canonical UploadRecord
+        row = await pool.fetchrow(
+            "SELECT * FROM uploads WHERE video_id=$1", video_id
+        )
+        log.info(
+            "upload.run.complete",
+            extra={
+                "duration_ms": timer.duration_ms,
+                "original_filename": file.filename,
+                "size_bytes": written,
+            },
+        )
 
     return {
         "video_id": row["video_id"],

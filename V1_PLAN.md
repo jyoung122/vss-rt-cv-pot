@@ -39,9 +39,10 @@ Phase 5  GPU VM deploy + runbook                    (½ day)
 Phase 6  Demo acceptance                            (½ day)
 Phase 7  Incident detection — rules (Phase A)      (1½ days)    ✅
 Phase 8  Cosmos-Reason 2 validation (Phase B)      (2½ days)
+Phase 9  Support/dev observability v0              (½ day)      ✅
 ```
 
-Total: ~7–9 days.
+Total: ~7½–9½ days.
 
 ---
 
@@ -122,6 +123,14 @@ Self-hosted `nvcr.io/nim/nvidia/cosmos-reason2-2b:latest` confirms / rejects / r
 29. ✅ Dashboard KPI split: `Rule-detected` vs `VLM-confirmed` (by Cosmos-Reason2).
 30. ✅ `docs/deploy.md` + `docs/gotchas.md` — Cosmos cold-start (10–15 min first boot, ~60 s after cache), GPU co-residency (~9 GB combined on A6000), `VLM_ENABLED=false` skip path, `--scale cosmos=0` escape hatch.
 
+**Phase 9 — Support/dev observability v0** (~½ day)
+
+Structured stdout logs and an optional OSS log UI for support/dev debugging. Scope is intentionally not operator status, SRE alerting, or auditor-grade indexing.
+
+31. ✅ Backend logging envelope — `LOG_LEVEL` + `LOG_FORMAT=text|json`, OpenTelemetry-friendly JSON Lines (`ts`/`timestamp`, `level`/`severity_text`, `service`/`service.name`, `logger`/`logger.name`, `msg`/`body`) plus `video_id`, `run_id`, `request_id`, durations, counts, lag, and `exc_info`. Existing `print(...)` paths replaced with level-disciplined logs across startup, upload, Redis, WebSocket, event indexer, incident analysis, SDR, and VLM paths.
+32. ✅ Correlation + consumer health — request-id middleware, per-run IDs for upload/analyze flows, context propagation into background work, and periodic `event_indexer.consumer.health` summaries with entries read, rows inserted, malformed objects, current `video_id`, stream lag, and interval duration. Per-frame detail remains DEBUG-only.
+33. ✅ TypeScript parity + local log UI — `frontend/src/lib/logger.ts` uses the same envelope and env knobs; upload/WebSocket/proxy console calls routed through it. Added optional `docker-compose.observability.yml` with Loki + Promtail + Grafana, low-cardinality labels only (`service`, `env`, `level`, `logger`), a provisioned Loki datasource, and **AIMS Support/Dev Logs** dashboard on Grafana port `3002`. Verified Loki ingestion for `service=aims-backend`.
+
 ### Deferred (not blocking v1 demo)
 - ⏸ `/events` global view (cross-upload filtering)
 - ⏸ `/settings` page real content
@@ -131,6 +140,8 @@ Self-hosted `nvcr.io/nim/nvidia/cosmos-reason2-2b:latest` confirms / rejects / r
 - ⏸ Auth (Supabase JWT or simpler) — v1.5 per locked decisions
 - ⏸ Live (non-batch) incident detection on RTSP streams — current design is per-upload batch
 - ⏸ GDINO open-vocab detection driven by the upload-page prompt textarea — v1.5
+- ⏸ Operator-facing `/status` UI for "Did my upload process? Why did it fail?" — separate from support/dev logs
+- ⏸ SRE metrics/alerts and auditor-grade OpenSearch/Elasticsearch indexing — observability backlog, not v0 logs
 
 ### Risk watch
 - ✅ ~~The full pipeline (DeepStream → indexer → Postgres → UI) has never run together.~~ Validated 2026-04-30 on a Brev A6000: 16,526 events / 70 tracks / 4 classes (car 10,891 · road_sign 2,386 · person 2,204 · bicycle 1,045) on `115_and_HVP.mp4` (148.8 s); `max(t_seconds)=148.67` matched clip duration. API endpoints (`/api/uploads`, `/api/uploads/:id/events?group=tracks`) returned correct shape. Cold-deploy traps catalogued in [`docs/gotchas.md`](docs/gotchas.md).

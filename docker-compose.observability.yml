@@ -1,0 +1,55 @@
+# Optional local/dev observability stack.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
+#   open http://localhost:3002  (admin/admin)
+#
+# Dev stack:
+#   docker compose -f docker-compose.dev.yml -f docker-compose.observability.yml up -d
+
+services:
+  loki:
+    image: grafana/loki:${LOKI_TAG:-2.9.8}
+    container_name: aims-loki
+    command: ["-config.file=/etc/loki/local-config.yml"]
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    volumes:
+      - ./observability/loki.yml:/etc/loki/local-config.yml:ro
+      - aims-loki-data:/loki
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:${PROMTAIL_TAG:-3.4.1}
+    container_name: aims-promtail
+    command: ["-config.file=/etc/promtail/config.yml"]
+    environment:
+      DOCKER_API_VERSION: ${DOCKER_API_VERSION:-1.44}
+    volumes:
+      - ./observability/promtail.yml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_TAG:-10.4.3}
+    container_name: aims-grafana
+    ports:
+      - "${GRAFANA_PORT:-3002}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - aims-grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+volumes:
+  aims-loki-data: {}
+  aims-grafana-data: {}

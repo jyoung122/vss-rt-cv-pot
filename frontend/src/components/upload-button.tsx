@@ -3,6 +3,10 @@
 import { useRef, useState } from 'react'
 import { Upload } from 'lucide-react'
 
+import { createLogger } from '@/lib/logger'
+
+const log = createLogger('components.upload-button')
+
 interface UploadResult {
   videoId: string
   playbackUrl: string
@@ -27,6 +31,7 @@ export default function UploadButton({ onUpload }: UploadButtonProps) {
     setError(null)
 
     try {
+      log.info('upload.client.start', { filename: file.name, size_bytes: file.size })
       const formData = new FormData()
       formData.append('file', file)
 
@@ -40,6 +45,7 @@ export default function UploadButton({ onUpload }: UploadButtonProps) {
       }
 
       const data = await response.json()
+      log.info('upload.client.complete', { video_id: data.video_id, status_code: response.status })
       onUpload({
         videoId: data.video_id,
         playbackUrl: `${apiUrl}${data.playback_url}`,
@@ -51,7 +57,7 @@ export default function UploadButton({ onUpload }: UploadButtonProps) {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
-      console.error('Upload error:', err)
+      log.error('upload.client.error', { error: err })
     } finally {
       setIsLoading(false)
     }

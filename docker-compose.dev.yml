@@ -54,6 +54,10 @@ services:
       SDR_URL: http://sdr-disabled:4001
       NVSTREAMER_URL: http://nvstreamer-disabled:30000
       HOST_IP: localhost
+      ENV: dev
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+      SERVICE_NAME: aims-backend
     volumes:
       - ${DATA_DIR:-./data}/videos:/data/videos
       - ./tools:/app/tools:ro

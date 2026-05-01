@@ -149,12 +149,14 @@ async def run_vlm_validation(video_id: str, pool) -> int:
     Returns number of incidents processed.
     If VLM_ENABLED is false, marks all pending incidents 'skipped'.
     """
+    log.info("vlm_validator.run.start", extra={"video_id": video_id, "vlm_enabled": VLM_ENABLED})
     rows = await pool.fetch(
         "SELECT id, rule_id, t_start_s, t_end_s FROM incidents "
         "WHERE video_id=$1 AND vlm_status='pending'",
         video_id,
     )
     if not rows:
+        log.info("vlm_validator.run.empty", extra={"video_id": video_id})
         return 0
 
     if not VLM_ENABLED:
@@ -163,13 +165,14 @@ async def run_vlm_validation(video_id: str, pool) -> int:
             "WHERE video_id=$1 AND vlm_status='pending'",
             video_id,
         )
-        log.info("vlm_validator: VLM disabled — skipped %d incidents for %s", len(rows), video_id)
+        log.info("vlm_validator.run.skipped", extra={"video_id": video_id, "incident_count": len(rows)})
         return len(rows)
 
     upload_row = await pool.fetchrow(
         "SELECT original_filename FROM uploads WHERE video_id=$1", video_id
     )
     if not upload_row:
+        log.error("vlm_validator.upload.not_found", extra={"video_id": video_id})
         return 0
 
     video_dir = Path(DATA_DIR) / "videos"
@@ -178,7 +181,7 @@ async def run_vlm_validation(video_id: str, pool) -> int:
     if not video_path.exists():
         matches = list(video_dir.glob(f"{video_id}.*"))
         if not matches:
-            log.error("vlm_validator: video file not found for %s", video_id)
+            log.error("vlm_validator.video_file.not_found", extra={"video_id": video_id})
             return 0
         video_path = matches[0]
 
@@ -196,7 +199,7 @@ async def run_vlm_validation(video_id: str, pool) -> int:
         try:
             await _extract_clip(video_path, clip_path, t_start, duration)
         except Exception as e:
-            log.error("vlm_validator: clip extraction failed for %s: %s", inc_id, e)
+            log.exception("vlm_validator.clip.extract_failed", extra={"video_id": video_id, "incident_id": inc_id})
             await _write_result(pool, inc_id, "error", None,
                                 f"clip extraction failed: {e}", None, None, None, None)
             continue
@@ -209,11 +212,21 @@ async def run_vlm_validation(video_id: str, pool) -> int:
                 pool, inc_id, "done", verdict, reasoning, confidence,
                 "nvidia/cosmos-reason2-2b", str(clip_path), latency_ms,
             )
-            log.info("vlm_validator: %s → %s (%.2f) in %dms", inc_id, verdict, confidence, latency_ms)
+            log.info(
+                "vlm_validator.incident.complete",
+                extra={
+                    "video_id": video_id,
+                    "incident_id": inc_id,
+                    "verdict": verdict,
+                    "confidence": confidence,
+                    "duration_ms": latency_ms,
+                },
+            )
             count += 1
         except Exception as e:
-            log.error("vlm_validator: cosmos call failed for %s: %s", inc_id, e)
+            log.exception("vlm_validator.cosmos.call_failed", extra={"video_id": video_id, "incident_id": inc_id})
             await _write_result(pool, inc_id, "error", None,
                                 f"cosmos call failed: {e}", None, None, str(clip_path), None)
 
+    log.info("vlm_validator.run.complete", extra={"video_id": video_id, "incident_count": count})
     return count

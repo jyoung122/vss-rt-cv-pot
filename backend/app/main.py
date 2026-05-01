@@ -1,13 +1,20 @@
 import os
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 import redis.asyncio as redis
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.logging_config import (
+    Timer,
+    configure_logging,
+    new_request_id,
+    reset_request_id,
+    set_request_id,
+)
 from app.upload import router as upload_router
 from app.playback import router as playback_router
 from app.events import router as events_router
@@ -22,8 +29,43 @@ DATA_DIR = os.getenv("DATA_DIR", "/data")
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
+configure_logging()
+log = logging.getLogger(__name__)
+
 redis_client = None
 _indexer_task: asyncio.Task | None = None
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get("x-request-id") or new_request_id()
+        token = set_request_id(request_id)
+        timer = Timer()
+        try:
+            response = await call_next(request)
+            response.headers["x-request-id"] = request_id
+            log.info(
+                "http.request.complete",
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status_code": response.status_code,
+                    "duration_ms": timer.duration_ms,
+                },
+            )
+            return response
+        except Exception:
+            log.exception(
+                "http.request.error",
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "duration_ms": timer.duration_ms,
+                },
+            )
+            raise
+        finally:
+            reset_request_id(token)
 
 
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
@@ -33,6 +75,14 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
             if content_length:
                 size = int(content_length)
                 if size > 500 * 1024 * 1024:
+                    log.warning(
+                        "http.request.body_too_large",
+                        extra={
+                            "method": request.method,
+                            "path": request.url.path,
+                            "content_length": size,
+                        },
+                    )
                     return JSONResponse(
                         status_code=413,
                         content={"detail": "Request body too large (max 500MB)"},
@@ -44,23 +94,34 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
 async def lifespan(app: FastAPI):
     global redis_client, _indexer_task
 
+    log.info("backend.start")
+
     # Postgres
     await init_pool()
+    log.info("postgres.pool.ready")
 
     # Redis
     redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
     try:
         await redis_client.ping()
-    except Exception as e:
-        print(f"Redis connection warning: {e}")
+    except Exception:
+        log.critical(
+            "redis.boot_connect.failed",
+            extra={"redis_host": REDIS_HOST, "redis_port": REDIS_PORT},
+            exc_info=True,
+        )
+        raise
+    log.info("redis.connected", extra={"redis_host": REDIS_HOST, "redis_port": REDIS_PORT})
 
     # Event indexer
     redis_url = f"redis://{REDIS_HOST}:{REDIS_PORT}"
     _indexer_task = asyncio.create_task(run_indexer(redis_url))
+    log.info("event_indexer.task.started")
 
     yield
 
     # Shutdown
+    log.info("backend.shutdown.start")
     if _indexer_task is not None:
         _indexer_task.cancel()
         try:
@@ -68,8 +129,10 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
 
-    await redis_client.aclose()
+    if redis_client is not None:
+        await redis_client.aclose()
     await close_pool()
+    log.info("backend.shutdown.complete")
 
 
 app = FastAPI(title="SSI AIMS v1", lifespan=lifespan)
@@ -81,6 +144,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestIdMiddleware)
 
 app.include_router(upload_router)
 app.include_router(playback_router)

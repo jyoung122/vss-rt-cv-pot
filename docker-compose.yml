@@ -136,6 +136,10 @@ services:
       REDIS_PORT: 6379
       DATA_DIR: /data
       DATABASE_URL: ${DATABASE_URL:-postgresql://aims:aims@postgres:5432/aims}
+      ENV: ${ENV:-prod}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      SERVICE_NAME: aims-backend
       VLM_ENABLED: ${VLM_ENABLED:-false}
       COSMOS_URL: http://cosmos:8000
     volumes:
@@ -164,6 +168,10 @@ services:
     container_name: vss-frontend
     ports:
       - "3000:3000"
+    environment:
+      NEXT_PUBLIC_LOG_LEVEL: ${NEXT_PUBLIC_LOG_LEVEL:-INFO}
+      NEXT_PUBLIC_LOG_FORMAT: ${NEXT_PUBLIC_LOG_FORMAT:-json}
+      NEXT_PUBLIC_SERVICE_NAME: aims-frontend
     depends_on:
       backend:
         condition: service_healthy
