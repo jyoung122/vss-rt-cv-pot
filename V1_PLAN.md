@@ -12,7 +12,7 @@
 
 | # | Decision |
 |---|---|
-| D1 | POT is the project. Will be renamed `aims/` (post-Phase 1). |
+| D1 | POT is the project. Renamed to `aims/` post-Phase 1 (commit `ce2e906`). |
 | D2 | No auth. Public on the demo VM (firewall-restricted by hosting). |
 | D3 | No IVM services in v1 (no behavior-analytics, search-store, video-store, alert-verification, agent layer). |
 | D4 | Upload-only. RTSP deferred. |
@@ -33,16 +33,17 @@
 ```
 Phase 1  Brand harvest + frontend rebrand          (1 day)         ✅
 Phase 2  UI improvements (lift IVM shell)          (1–2 days)      ✅
-Phase 3  Backend hardening for prod-ish            (½ day)
+Phase 3  Backend hardening for prod-ish            (½ day)      🔥 (TRT cache volume #6 deferred)
 Phase 4  Repo rename: vss-rt-cv-pot → aims         (½ day)      ✅
 Phase 5  GPU VM deploy + runbook                    (½ day)
 Phase 6  Demo acceptance                            (½ day)
 Phase 7  Incident detection — rules (Phase A)      (1½ days)    ✅
-Phase 8  Cosmos-Reason 2 validation (Phase B)      (2½ days)
+Phase 8  Cosmos-Reason 2 validation (Phase B)      (2½ days)    ✅
 Phase 9  Support/dev observability v0              (½ day)      ✅
+Phase 7/8 follow-on — incidents UX polish          (½ day)      ✅
 ```
 
-Total: ~7½–9½ days.
+Total: ~8–10 days.
 
 ---
 
@@ -91,8 +92,8 @@ What we're actually working on now, in order. Tick as we go.
 
 **Phase 5 — GPU VM deploy** (~½ day)
 11. ✅ Brev GPU VM provisioned (A6000 48 GB, driver 580.126.09, CUDA 13.0). E2E validated 2026-04-30.
-12. ⏳ Write `aims/docs/deploy.md` runbook — NGC login, env file, **pre-stage TrafficCamNet ONNX via bearer-token REST** (NGC CLI 403s on signed-URL redirect), **`chmod -R 777 data/models`** (container runs as uid 1000, host dir is host-uid 755), `docker compose up -d`, first-boot TRT cache wait.
-13. ⏳ Cold-deploy on a fresh VM to validate the runbook (the 2026-04-30 run validated the *stack*; the *runbook* itself doesn't exist yet).
+12. 🔥 Runbook drafted at `docs/deploy/deploy.md` + `docs/deploy/reverse-proxy.md` — NGC login, env file, **pre-stage TrafficCamNet ONNX via bearer-token REST** (NGC CLI 403s on signed-URL redirect), **`chmod -R 777 data/models`** (container runs as uid 1000, host dir is host-uid 755), `docker compose up -d`, first-boot TRT cache wait. **Uncommitted** — `docs/deploy.md` shows as deleted in working tree and the new `docs/deploy/` folder is untracked. Decide rename vs revert and land in one commit before claiming done.
+13. ⏳ Cold-deploy on a fresh VM to validate the runbook (the 2026-04-30 run validated the *stack*; the *runbook* itself isn't committed yet).
 
 **Phase 6 — demo acceptance** (~½ day)
 14. ⏳ Run the 8 acceptance criteria from the plan against the live VM.
@@ -121,7 +122,7 @@ Self-hosted `nvcr.io/nim/nvidia/cosmos-reason2-2b:latest` confirms / rejects / r
 27. ✅ VLM validator worker `backend/app/vlm_validator.py` — finds pending incidents, extracts clip via ffmpeg, calls Cosmos `/v1/chat/completions` with base64 video + structured prompt, strips `<think>` tags, parses JSON verdict, writes back. `VLM_ENABLED=false` → `vlm_status='skipped'` in one UPDATE. Spawned as `asyncio.create_task` from the analyze endpoint.
 28. ✅ UI: VLM pill on each incident card (`Confirmed` / `Rejected` / `Uncertain` / `Pending` / `Error`), expandable "Why" panel with reasoning + model + latency, filter chips (`All` / `Confirmed` / `Rejected` / `Pending`) at top of Scenarios tab.
 29. ✅ Dashboard KPI split: `Rule-detected` vs `VLM-confirmed` (by Cosmos-Reason2).
-30. ✅ `docs/deploy.md` + `docs/gotchas.md` — Cosmos cold-start (10–15 min first boot, ~60 s after cache), GPU co-residency (~9 GB combined on A6000), `VLM_ENABLED=false` skip path, `--scale cosmos=0` escape hatch.
+30. ✅ `docs/deploy/deploy.md` + `docs/gotchas.md` — Cosmos cold-start (10–15 min first boot, ~60 s after cache), GPU co-residency (~9 GB combined on A6000), `VLM_ENABLED=false` skip path, `--scale cosmos=0` escape hatch.
 
 **Phase 9 — Support/dev observability v0** (~½ day)
 
@@ -130,6 +131,14 @@ Structured stdout logs and an optional OSS log UI for support/dev debugging. Sco
 31. ✅ Backend logging envelope — `LOG_LEVEL` + `LOG_FORMAT=text|json`, OpenTelemetry-friendly JSON Lines (`ts`/`timestamp`, `level`/`severity_text`, `service`/`service.name`, `logger`/`logger.name`, `msg`/`body`) plus `video_id`, `run_id`, `request_id`, durations, counts, lag, and `exc_info`. Existing `print(...)` paths replaced with level-disciplined logs across startup, upload, Redis, WebSocket, event indexer, incident analysis, SDR, and VLM paths.
 32. ✅ Correlation + consumer health — request-id middleware, per-run IDs for upload/analyze flows, context propagation into background work, and periodic `event_indexer.consumer.health` summaries with entries read, rows inserted, malformed objects, current `video_id`, stream lag, and interval duration. Per-frame detail remains DEBUG-only.
 33. ✅ TypeScript parity + local log UI — `frontend/src/lib/logger.ts` uses the same envelope and env knobs; upload/WebSocket/proxy console calls routed through it. Added optional `docker-compose.observability.yml` with Loki + Promtail + Grafana, low-cardinality labels only (`service`, `env`, `level`, `logger`), a provisioned Loki datasource, and **AIMS Support/Dev Logs** dashboard on Grafana port `3002`. Verified Loki ingestion for `service=aims-backend`.
+
+**Phase 7/8 follow-on — incidents UX polish** (post-merge, ~½ day)
+
+34. ✅ `/incidents` catalog page + `GET /api/incidents/catalog` endpoint — cross-upload incident browser surfaced in sidebar nav. Commit `8a5fa13`.
+35. ✅ Live-editable rule thresholds on the incidents configuration page. Commit `4219fd0`.
+36. ✅ Strip per-track tracking data from incidents page — pure rule-config view, no live state leakage. Commit `642e421`.
+37. ✅ `incident_worker` mass-stop tuning + stale-incident cleanup fix. Commit `7e95b2a`.
+38. ✅ Incident click on uploads detail seeks to incident time and selects first track. Commit `10b4a3d`.
 
 ### Deferred (not blocking v1 demo)
 - ⏸ `/events` global view (cross-upload filtering)
