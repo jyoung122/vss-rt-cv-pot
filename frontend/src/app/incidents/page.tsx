@@ -1,25 +1,19 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import {
   AlertTriangle,
   Car,
-  Check,
-  Clock,
-  HelpCircle,
   Layers,
   ParkingSquare,
   PersonStanding,
   RotateCcw,
   Save,
-  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
-import { type VlmVerdict } from '@/lib/uploads'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,33 +30,12 @@ interface ThresholdField {
   step: number
 }
 
-interface RecentIncident {
-  id: string
-  video_id: string
-  confidence: number
-  t_start_s: number
-  t_end_s: number
-  track_ids: number[]
-  created_at: string
-  vlm_status: string
-  vlm_verdict: VlmVerdict
-  vlm_confidence: number | null
-}
-
 interface CatalogEntry {
   rule_id: RuleId
   severity: Severity
-  total: number
-  avg_confidence: number
-  vlm_confirmed: number
-  vlm_rejected: number
-  vlm_pending: number
-  false_positive_rate: number | null
-  last_detected_at: string | null
   thresholds: Record<string, number>
   threshold_schema: ThresholdField[]
   thresholds_updated_at: string | null
-  recent_incidents: RecentIncident[]
 }
 
 // ─── Static rule UI metadata ──────────────────────────────────────────────────
@@ -106,12 +79,6 @@ const RULE_META: Record<RuleId, {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function fmtTime(s: number): string {
-  const m = Math.floor(s / 60)
-  const sec = Math.floor(s % 60)
-  return `${m}:${String(sec).padStart(2, '0')}`
-}
-
 function fmtRelative(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
   const mins = Math.floor(diff / 60000)
@@ -138,33 +105,6 @@ function SeverityBadge({ severity }: { severity: Severity }) {
   )
 }
 
-function VlmPill({ verdict, status }: { verdict: VlmVerdict; status: string }) {
-  if (status === 'skipped' || status === 'pending') return (
-    <span className="inline-flex items-center gap-1 text-[var(--fg-4)] text-[10px]"><Clock size={10} />{status}</span>
-  )
-  if (verdict === 'confirmed') return (
-    <span className="inline-flex items-center gap-1 text-[var(--ok-500)] text-[10px] font-medium"><Check size={10} strokeWidth={2.5} />confirmed</span>
-  )
-  if (verdict === 'rejected') return (
-    <span className="inline-flex items-center gap-1 text-[var(--danger-500)] text-[10px] font-medium"><X size={10} strokeWidth={2.5} />rejected</span>
-  )
-  if (verdict === 'uncertain') return (
-    <span className="inline-flex items-center gap-1 text-[var(--warn-500)] text-[10px] font-medium"><HelpCircle size={10} />uncertain</span>
-  )
-  return null
-}
-
-function StatCard({ label, value, mono = false }: { label: string; value: string | number; mono?: boolean }) {
-  return (
-    <div className="p-3 bg-[var(--surface-1)] border border-[var(--border)] rounded-[var(--radius-sm)]">
-      <div className="text-[10px] font-semibold tracking-widest uppercase text-[var(--fg-4)] mb-1">{label}</div>
-      <div className={`text-lg font-semibold text-[var(--fg-1)] leading-none ${mono ? 'font-mono' : 'font-display'}`}>
-        {value}
-      </div>
-    </div>
-  )
-}
-
 // ─── Threshold editor ─────────────────────────────────────────────────────────
 
 function ThresholdEditor({
@@ -180,12 +120,8 @@ function ThresholdEditor({
   const [savedAt, setSavedAt] = useState<string | null>(entry.thresholds_updated_at)
   const [error, setError] = useState<string | null>(null)
 
-  // Track dirty state
-  const dirty = entry.threshold_schema.some(
-    (f) => values[f.key] !== entry.thresholds[f.key]
-  )
+  const dirty = entry.threshold_schema.some((f) => values[f.key] !== entry.thresholds[f.key])
 
-  // Sync when entry changes (different rule selected)
   const prevRuleId = useRef(entry.rule_id)
   useEffect(() => {
     if (prevRuleId.current !== entry.rule_id) {
@@ -240,7 +176,6 @@ function ThresholdEditor({
 
   return (
     <div>
-      {/* threshold inputs */}
       <div className="space-y-2">
         {entry.threshold_schema.map((field) => {
           const val = values[field.key] ?? entry.thresholds[field.key]
@@ -275,7 +210,6 @@ function ThresholdEditor({
         })}
       </div>
 
-      {/* action row */}
       <div className="flex items-center gap-2 mt-4">
         <Button
           size="sm"
@@ -301,22 +235,16 @@ function ThresholdEditor({
           {resetting ? 'Resetting…' : 'Reset to defaults'}
         </Button>
         <div className="flex-1" />
-        {error && (
-          <span className="text-[11px] text-[var(--danger-500)]">{error}</span>
-        )}
+        {error && <span className="text-[11px] text-[var(--danger-500)]">{error}</span>}
         {!dirty && savedAt && (
           <span className="text-[11px] text-[var(--fg-4)]">Saved {fmtRelative(savedAt)}</span>
         )}
-        {dirty && (
-          <span className="text-[11px] text-[var(--warn-500)]">Unsaved changes</span>
-        )}
+        {dirty && <span className="text-[11px] text-[var(--warn-500)]">Unsaved changes</span>}
       </div>
 
-      {/* re-analyze notice */}
       {!dirty && savedAt && (
         <div className="mt-3 px-3 py-2.5 bg-[color-mix(in_srgb,var(--accent-500)_8%,transparent)] border border-[color-mix(in_srgb,var(--accent-500)_25%,transparent)] rounded-[var(--radius-sm)] text-[11px] text-[var(--fg-2)]">
-          Threshold changes apply on the next analysis run.
-          Re-analyze a video via <span className="font-mono text-[var(--accent-400)]">POST /api/uploads/:id/analyze</span> or the Uploads page.
+          Changes apply on the next analyze run — re-analyze videos from the Uploads page.
         </div>
       )}
     </div>
@@ -338,11 +266,9 @@ function RuleDetail({
     return (
       <div className="flex-1 overflow-auto p-7 space-y-4">
         <Skeleton className="h-10 w-64" />
-        <div className="grid grid-cols-4 gap-2">
-          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16" />)}
-        </div>
-        <Skeleton className="h-48" />
-        <Skeleton className="h-32" />
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="h-3 w-3/4" />
+        <Skeleton className="h-48 mt-4" />
       </div>
     )
   }
@@ -351,7 +277,7 @@ function RuleDetail({
 
   return (
     <div className="flex-1 overflow-auto">
-      <div className="max-w-3xl p-7">
+      <div className="max-w-2xl p-7">
         {/* Header */}
         <div className="flex items-center gap-3 mb-2">
           <div
@@ -379,21 +305,6 @@ function RuleDetail({
 
         <p className="text-[13px] text-[var(--fg-3)] leading-relaxed mb-6">{meta.desc}</p>
 
-        {/* Stats row */}
-        <div className="grid grid-cols-4 gap-2 mb-7">
-          <StatCard label="Total detected" value={entry.total} />
-          <StatCard label="VLM confirmed" value={entry.vlm_confirmed} />
-          <StatCard
-            label="Avg confidence"
-            value={entry.avg_confidence > 0 ? entry.avg_confidence.toFixed(2) : '—'}
-            mono
-          />
-          <StatCard
-            label="False positive rate"
-            value={entry.false_positive_rate != null ? `${(entry.false_positive_rate * 100).toFixed(0)}%` : '—'}
-          />
-        </div>
-
         <Separator className="mb-6 bg-[var(--border)]" />
 
         {/* Threshold configuration */}
@@ -416,7 +327,7 @@ function RuleDetail({
         <Separator className="mb-6 bg-[var(--border)]" />
 
         {/* Trigger logic */}
-        <div className="mb-6">
+        <div>
           <div className="font-display text-[15px] font-semibold tracking-tight text-[var(--fg-1)] mb-2">
             Trigger logic
           </div>
@@ -424,68 +335,14 @@ function RuleDetail({
             {meta.logic}
           </div>
         </div>
-
-        <Separator className="mb-6 bg-[var(--border)]" />
-
-        {/* Recent incidents */}
-        <div>
-          <div className="font-display text-[15px] font-semibold tracking-tight text-[var(--fg-1)] mb-1">
-            Recent incidents
-          </div>
-          <div className="text-[11px] text-[var(--fg-3)] mb-3">
-            {entry.total === 0
-              ? 'No incidents detected yet'
-              : `Most recent ${Math.min(5, entry.total)} of ${entry.total} total`}
-          </div>
-
-          {entry.total === 0 ? (
-            <div className="py-8 text-center text-[var(--fg-4)] text-sm border border-dashed border-[var(--border)] rounded-[var(--radius-sm)]">
-              No incidents detected. Upload a video and run{' '}
-              <span className="font-mono text-[var(--accent-400)]">Analyze</span>.
-            </div>
-          ) : (
-            <div className="space-y-1.5">
-              {entry.recent_incidents.map((inc) => (
-                <Link
-                  key={inc.id}
-                  href={`/uploads/${inc.video_id}`}
-                  className="flex items-center gap-3 px-3 py-2.5 bg-[var(--surface-1)] border border-[var(--border)] rounded-[var(--radius-sm)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)] transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-[11px] text-[var(--fg-2)]">
-                        {fmtTime(inc.t_start_s)}–{fmtTime(inc.t_end_s)}
-                      </span>
-                      <span className="text-[10px] text-[var(--fg-4)]">·</span>
-                      <span className="font-mono text-[11px] text-[var(--fg-3)]">
-                        {inc.track_ids.length} track{inc.track_ids.length !== 1 ? 's' : ''}
-                      </span>
-                      <span className="text-[10px] text-[var(--fg-4)]">·</span>
-                      <span className="font-mono text-[11px] text-[var(--accent-400)]">
-                        {(inc.confidence * 100).toFixed(0)}%
-                      </span>
-                    </div>
-                    <div className="font-mono text-[10px] text-[var(--fg-4)] mt-0.5 truncate">
-                      {inc.video_id}
-                    </div>
-                  </div>
-                  <div className="shrink-0 flex items-center gap-3">
-                    <VlmPill verdict={inc.vlm_verdict} status={inc.vlm_status} />
-                    <span className="text-[10px] text-[var(--fg-4)]">{fmtRelative(inc.created_at)}</span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
     </div>
   )
 }
 
-// ─── Left catalog list ────────────────────────────────────────────────────────
+// ─── Left rule list ───────────────────────────────────────────────────────────
 
-function CatalogList({
+function RuleList({
   entries,
   selectedId,
   onSelect,
@@ -523,9 +380,6 @@ function CatalogList({
                 <span className="text-[13px] font-semibold text-[var(--fg-1)] flex-1 truncate">
                   {meta.label}
                 </span>
-                <span className="font-mono text-[11px] text-[var(--fg-3)] shrink-0">
-                  {entry.total}
-                </span>
               </div>
               <p className="text-[11px] text-[var(--fg-3)] leading-[1.4] line-clamp-2 mb-2">
                 {meta.desc}
@@ -533,7 +387,7 @@ function CatalogList({
               <div className="flex items-center gap-2">
                 <SeverityBadge severity={entry.severity} />
                 {hasOverrides && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[3px] text-[10px] font-semibold border uppercase text-[var(--accent-400)] border-[color-mix(in_srgb,var(--accent-500)_30%,transparent)] bg-[color-mix(in_srgb,var(--accent-500)_10%,transparent)]">
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-semibold border uppercase text-[var(--accent-400)] border-[color-mix(in_srgb,var(--accent-500)_30%,transparent)] bg-[color-mix(in_srgb,var(--accent-500)_10%,transparent)]">
                     custom
                   </span>
                 )}
@@ -584,7 +438,7 @@ export default function IncidentCatalogPage() {
     return (
       <div className="flex flex-1 items-center justify-center text-[var(--fg-4)] gap-2">
         <AlertTriangle size={16} />
-        <span className="text-sm">Failed to load catalog: {error}</span>
+        <span className="text-sm">Failed to load rules: {error}</span>
       </div>
     )
   }
@@ -593,10 +447,9 @@ export default function IncidentCatalogPage() {
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
-      {/* Left — 340px rule list */}
-      <div className="w-[340px] shrink-0 flex flex-col min-h-0">
+      <div className="w-[320px] shrink-0 flex flex-col min-h-0">
         {loading ? (
-          <div className="p-4 space-y-3">
+          <div className="p-4 space-y-4">
             {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="space-y-2">
                 <Skeleton className="h-4 w-3/4" />
@@ -606,15 +459,10 @@ export default function IncidentCatalogPage() {
             ))}
           </div>
         ) : (
-          <CatalogList
-            entries={catalog}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-          />
+          <RuleList entries={catalog} selectedId={selectedId} onSelect={setSelectedId} />
         )}
       </div>
 
-      {/* Right — detail + config */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-[var(--bg)]">
         <RuleDetail
           entry={selectedEntry}
