@@ -14,6 +14,7 @@ to trigger explicitly after ingestion completes.
 import json
 import logging
 import math
+import time
 from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 from typing import Any
@@ -45,9 +46,9 @@ STATIONARY_MIN_S = 15.0        # must be stationary for this long
 STATIONARY_MOVED_PX_S = 8.0    # minimum velocity at some earlier point to rule out parked cars
 
 # mass_stop
-MASS_STOP_TRACKS_MIN = 3       # minimum number of vehicles stopping together
+MASS_STOP_TRACKS_MIN = 4       # minimum number of vehicles stopping together
 MASS_STOP_WINDOW_S = 2.0       # within this window
-MASS_STOP_DROP_MIN = 3.0       # velocity_drop_ratio threshold
+MASS_STOP_DROP_MIN = 6.0       # velocity_drop_ratio threshold (6x drop = hard braking)
 
 
 def _normalize_class(cls: str) -> str:
@@ -485,7 +486,8 @@ def _rule_mass_stop(
         if len(track_ids_in_window) < MASS_STOP_TRACKS_MIN:
             continue
 
-        key = (round(t_anchor, 1), frozenset(track_ids_in_window))
+        # Bucket by window-width so the same track-set only fires once per window
+        key = (round(t_anchor / MASS_STOP_WINDOW_S), frozenset(track_ids_in_window))
         if key in seen_windows:
             continue
         seen_windows.add(key)
@@ -599,14 +601,14 @@ async def _load_detection_inputs(conn, video_id: str) -> tuple[list[Any], float]
 
 
 async def _refresh_incidents(conn, video_id: str, incidents: list[dict[str, Any]]) -> int:
+    # Full replace: delete all prior rule detections then insert fresh.
+    # VLM columns reset to default 'pending'; the analyze endpoint re-queues VLM.
+    await conn.execute("DELETE FROM incidents WHERE video_id=$1", video_id)
+
     if not incidents:
-        await conn.execute("DELETE FROM incidents WHERE video_id=$1", video_id)
-        log.info("incident_worker: no incidents found for %s", video_id)
+        log.info("incident_worker.refresh.empty", extra={"video_id": video_id})
         return 0
 
-    # Upsert rather than DELETE+INSERT so Phase 8 vlm_* columns (added in a later
-    # migration) survive re-analyze. The ON CONFLICT key matches the schema's
-    # incidents_dedup unique index.
     for inc in incidents:
         await conn.execute(
             """
@@ -615,13 +617,6 @@ async def _refresh_incidents(conn, video_id: str, incidents: list[dict[str, Any]
                  t_start_s, t_end_s, frame_start, frame_end,
                  track_ids, bbox_union, metadata)
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb)
-            ON CONFLICT (video_id, rule_id, t_start_s, track_ids)
-            DO UPDATE SET
-                confidence  = EXCLUDED.confidence,
-                t_end_s     = EXCLUDED.t_end_s,
-                frame_end   = EXCLUDED.frame_end,
-                bbox_union  = EXCLUDED.bbox_union,
-                metadata    = EXCLUDED.metadata
             """,
             video_id,
             inc["rule_id"],
@@ -636,18 +631,34 @@ async def _refresh_incidents(conn, video_id: str, incidents: list[dict[str, Any]
             json.dumps(inc["metadata"]),
         )
 
+
     count = await conn.fetchval(
         "SELECT COUNT(*) FROM incidents WHERE video_id=$1",
         video_id,
     )
-    log.info("incident_worker: %d incidents inserted for %s", count, video_id)
+    log.info("incident_worker.refresh.complete", extra={"video_id": video_id, "incident_count": count})
     return count
 
 
 async def run_incident_detection(video_id: str, pool) -> int:
     """Detect incidents for one video_id and replace prior rule results."""
+    t0 = time.monotonic()
     async with pool.acquire() as conn:
         async with conn.transaction():
             rows, fps = await _load_detection_inputs(conn, video_id)
+            log.info(
+                "incident_worker.detect.start",
+                extra={"video_id": video_id, "event_count": len(rows), "fps": fps},
+            )
             incidents = _detect_incidents(rows, fps) if rows else []
-            return await _refresh_incidents(conn, video_id, incidents)
+            count = await _refresh_incidents(conn, video_id, incidents)
+            log.info(
+                "incident_worker.detect.complete",
+                extra={
+                    "video_id": video_id,
+                    "event_count": len(rows),
+                    "incident_count": count,
+                    "duration_ms": int((time.monotonic() - t0) * 1000),
+                },
+            )
+            return count
