@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -20,6 +21,7 @@ import {
   formatDuration,
   formatUploaded,
 } from '@/lib/uploads'
+import { hasSeenTour, resumeTourIfNeeded } from '@/lib/tour'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -71,12 +73,17 @@ const ACTIVE_RULES = [
 ]
 
 export default function DashboardPage() {
+  const router = useRouter()
   const [uploads, setUploads] = useState<UploadRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [incidentCount, setIncidentCount] = useState<number | null>(null)
   const [vlmConfirmedCount, setVlmConfirmedCount] = useState<number | null>(null)
   const [incidentsLoading, setIncidentsLoading] = useState(true)
+
+  useEffect(() => {
+    if (!hasSeenTour()) resumeTourIfNeeded('dashboard', router.push)
+  }, [router])
 
   useEffect(() => {
     let cancelled = false
@@ -208,7 +215,7 @@ export default function DashboardPage() {
             </Card>
           )}
 
-          <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+          <div data-tour="kpi-grid" className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
             <KpiCard
               label="Events indexed"
               value={loading ? null : stats.eventCount.toLocaleString()}
@@ -234,15 +241,17 @@ export default function DashboardPage() {
               source="Uploads API"
               icon={<AlertTriangle className="size-3.5" strokeWidth={1.75} />}
             />
-            <KpiCard
-              label="VLM-confirmed"
-              value={incidentsLoading ? null : (vlmConfirmedCount ?? '—').toString()}
-              delta="by Cosmos-Reason2"
-              trend={KPI_TRENDS.falsePositive}
-              tone="ok"
-              source="Uploads API"
-              icon={<ShieldCheck className="size-3.5" strokeWidth={1.75} />}
-            />
+            <div data-tour="kpi-vlm">
+              <KpiCard
+                label="VLM-confirmed"
+                value={incidentsLoading ? null : (vlmConfirmedCount ?? '—').toString()}
+                delta="by Cosmos-Reason2"
+                trend={KPI_TRENDS.falsePositive}
+                tone="ok"
+                source="Uploads API"
+                icon={<ShieldCheck className="size-3.5" strokeWidth={1.75} />}
+              />
+            </div>
             <KpiCard
               label="Avg. response time"
               value="3:42"
@@ -277,7 +286,7 @@ export default function DashboardPage() {
             <RulesCard />
           </div>
 
-          <div className="mb-6 grid grid-cols-1 gap-3 xl:grid-cols-[1.1fr_1fr]">
+          <div data-tour="recent-uploads" className="mb-6 grid grid-cols-1 gap-3 xl:grid-cols-[1.1fr_1fr]">
             <RecentUploadsCard
               uploads={latestUploads}
               loading={loading}

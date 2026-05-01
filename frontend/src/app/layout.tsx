@@ -1,6 +1,9 @@
 import type { Metadata } from 'next'
 import { Inter, JetBrains_Mono, Space_Grotesk } from 'next/font/google'
 import './globals.css'
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — driver.js CSS has no type declaration
+import 'driver.js/dist/driver.css'
 
 import { AppHeader } from '@/components/app-header'
 import { AppSidebar } from '@/components/app-sidebar'

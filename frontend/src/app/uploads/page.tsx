@@ -16,7 +16,7 @@ import {
   Video,
   X,
 } from 'lucide-react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 import { cn } from '@/lib/utils'
 import {
@@ -41,6 +41,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { resumeTourIfNeeded } from '@/lib/tour'
 
 const ACCEPT = '.mp4,.mkv'
 
@@ -65,6 +66,7 @@ export default function UploadsPage() {
 
 function UploadsContent() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [items, setItems] = useState<UploadRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -102,6 +104,10 @@ function UploadsContent() {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  useEffect(() => {
+    resumeTourIfNeeded('uploads', router.push)
+  }, [router])
 
   // After upload completes, advance simulated post-upload stages
   useEffect(() => {
@@ -449,7 +455,7 @@ function UploadsContent() {
           )}
 
           {/* Recent uploads */}
-          <div className="mt-7">
+          <div data-tour="uploads-list" className="mt-7">
             <div className="mb-3 flex items-center gap-2.5">
               <div className="text-[13px] font-semibold text-foreground">
                 Recent uploads · {filtered.length}

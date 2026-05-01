@@ -8,12 +8,14 @@ import {
   Check,
   ChevronRight,
   Download,
+  MapPinned,
   Plus,
   Search,
 } from 'lucide-react'
 
 import { type UploadRecord } from '@/lib/uploads'
 import { cn } from '@/lib/utils'
+import { startTour } from '@/lib/tour'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -211,6 +213,15 @@ export function AppHeader() {
         </>
       )}
 
+      <Button
+        variant="ghost"
+        size="sm"
+        className="gap-1.5 text-muted-foreground hover:text-foreground"
+        onClick={() => startTour(router.push)}
+      >
+        <MapPinned className="size-3.5" strokeWidth={1.75} />
+        Tour
+      </Button>
       <ThemeToggle />
     </header>
   )

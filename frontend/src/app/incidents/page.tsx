@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   AlertTriangle,
   Car,
@@ -10,6 +11,7 @@ import {
   RotateCcw,
   Save,
 } from 'lucide-react'
+import { resumeTourIfNeeded } from '@/lib/tour'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -403,10 +405,15 @@ function RuleList({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function IncidentCatalogPage() {
+  const router = useRouter()
   const [catalog, setCatalog] = useState<CatalogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<RuleId>('vehicle_collision')
+
+  useEffect(() => {
+    resumeTourIfNeeded('incidents', router.push)
+  }, [router])
 
   useEffect(() => {
     fetch('/api/incidents/catalog')
@@ -447,7 +454,7 @@ export default function IncidentCatalogPage() {
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
-      <div className="w-[320px] shrink-0 flex flex-col min-h-0">
+      <div data-tour="incidents-catalog" className="w-[320px] shrink-0 flex flex-col min-h-0">
         {loading ? (
           <div className="p-4 space-y-4">
             {Array.from({ length: 4 }).map((_, i) => (

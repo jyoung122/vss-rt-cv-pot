@@ -195,3 +195,55 @@ html.light {
   background-size: 200% 100%;
   animation: ov-sweep 2.4s linear infinite;
 }
+
+/* ---------------------------------------------------------------------------
+ * driver.js product tour — inherits OpsVision tokens
+ * --------------------------------------------------------------------------- */
+.aims-tour-popover.driver-popover {
+  background: var(--surface-2);
+  border: 1px solid var(--color-border);
+  color: var(--fg-1);
+  border-radius: var(--radius-lg, 8px);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  min-width: 280px;
+  max-width: 360px;
+}
+.aims-tour-popover .driver-popover-title {
+  color: var(--fg-1);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.aims-tour-popover .driver-popover-description {
+  color: var(--fg-2);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+.aims-tour-popover .driver-popover-progress-text {
+  color: var(--fg-3);
+  font-size: 0.75rem;
+}
+.aims-tour-popover .driver-popover-next-btn {
+  background: var(--accent-500);
+  color: var(--ink-0);
+  border: none;
+  border-radius: var(--radius, 6px);
+  font-size: 0.8125rem;
+  padding: 0.35rem 0.75rem;
+}
+.aims-tour-popover .driver-popover-next-btn:hover {
+  background: var(--accent-600, var(--accent-500));
+}
+.aims-tour-popover .driver-popover-prev-btn {
+  background: transparent;
+  color: var(--fg-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius, 6px);
+  font-size: 0.8125rem;
+  padding: 0.35rem 0.75rem;
+}
+.aims-tour-popover .driver-popover-close-btn {
+  color: var(--fg-3);
+}
+.aims-tour-popover .driver-popover-close-btn:hover {
+  color: var(--fg-1);
+}

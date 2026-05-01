@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import {
   AlertTriangle,
   Brain,
@@ -34,6 +34,7 @@ import {
   type VlmVerdict,
   formatBytes,
 } from '@/lib/uploads'
+import { resumeTourIfNeeded } from '@/lib/tour'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -111,6 +112,7 @@ function fmtTimestamp(s: number): string {
 
 export default function UploadDetailPage() {
   const params = useParams<{ video_id: string }>()
+  const router = useRouter()
   const videoId = params.video_id
 
   const [upload, setUpload] = useState<UploadRecord | null>(null)
@@ -171,6 +173,10 @@ export default function UploadDetailPage() {
   }, [videoId])
 
   useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    resumeTourIfNeeded('detail', router.push)
+  }, [router])
 
   // ─── Player helpers ────────────────────────────────────────────────────────
 
@@ -440,6 +446,7 @@ export default function UploadDetailPage() {
               {/* design: not a shadcn primitive — bespoke scrubber DOM with custom track bands per
                   detected object, playhead, and click-to-seek. No primitive maps to this. */}
               <div
+                data-tour="scrubber"
                 className="relative cursor-pointer"
                 style={{ height: 26 }}
                 onClick={handleScrubberClick}
@@ -701,10 +708,10 @@ export default function UploadDetailPage() {
           <Tabs defaultValue="events" className="flex min-h-0 flex-1 flex-col">
             <div className="shrink-0 border-b px-4 pt-3">
               <TabsList variant="line" className="gap-3">
-                <TabsTrigger value="events" className="text-[12px]">
+                <TabsTrigger data-tour="tab-events" value="events" className="text-[12px]">
                   Events
                 </TabsTrigger>
-                <TabsTrigger value="scenarios" className="text-[12px]">
+                <TabsTrigger data-tour="tab-scenarios" value="scenarios" className="text-[12px]">
                   Scenarios
                   {incidents.length > 0 && (
                     <Badge variant="secondary" className="ml-1 font-mono text-[10px]">
