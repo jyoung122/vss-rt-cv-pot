@@ -1,8 +1,8 @@
 # SSI AIMS — Deploy Runbook
 
-Cold-deploy on a fresh GPU VM. Validated 2026-04-30 on Brev A6000 (driver 580, CUDA 13). Allow ~45 min end-to-end (Phase 8 Cosmos weight load adds ~10–15 min on first boot).
+Cold-deploy on a fresh GPU VM. Phases 1–7 (rule-only) validated 2026-04-30 on Brev A6000 (driver 580, CUDA 13); Phase 8 (Cosmos VLM) follows the same path with the additional cosmos service. Allow ~45 min end-to-end without VLM, ~60 min with VLM (Cosmos weight load adds ~10–15 min on first boot).
 
-If something doesn't work, [`gotchas.md`](gotchas.md) has the symptom → fix table.
+If something doesn't work, [`../gotchas.md`](../gotchas.md) has the symptom → fix table.
 
 ---
 
@@ -109,6 +109,8 @@ mkdir -p data/videos && chmod 777 data/videos
 
 ## 5. Bring the stack up
 
+**With VLM (Phase 8):**
+
 ```bash
 docker compose up -d --build
 docker compose ps
@@ -116,7 +118,13 @@ docker compose ps
 
 Expected services: `aims-postgres`, `vss-redis`, `vss-nvstreamer`, `vss-sdr`, `vss-rt-cv`, `vss-backend`, `vss-frontend`, `aims-cosmos`.
 
-> If `VLM_ENABLED=false` you can omit the cosmos service entirely: `docker compose up -d --build --scale cosmos=0`. The backend will still start and VLM results will be marked `skipped`.
+**Without VLM** — skip the ~15 GB Cosmos image pull entirely by listing the non-cosmos services explicitly:
+
+```bash
+docker compose up -d --build redis postgres nvstreamer sdr vss-rt-cv backend frontend
+```
+
+Set `VLM_ENABLED=false` in `.env` so the backend skips analyze calls and marks VLM verdicts `skipped`. (`--scale cosmos=0` does *not* avoid the image pull — it just won't start the container.)
 
 ---
 
@@ -156,12 +164,15 @@ GPU co-residency note: DeepStream and Cosmos share GPU 0. DeepStream uses ~3 GB 
 
 ## 7. Smoke test
 
+The backend's `entrypoint.sh` runs `python -m app.seed` at startup, which copies anything in `backend/seed-videos/` into `${DATA_DIR}/videos/` and inserts matching `uploads` rows (idempotent). For a fresh demo VM this means the canonical sample clip is already loaded — open `http://$HOST_IP:3000/uploads`, click it, and the pipeline starts.
+
+To smoke-test via API instead:
+
 ```bash
-# Place a sample clip
+# Optional: drop in your own clip
 mkdir -p data/videos
 cp <local clip>.mp4 data/videos/
 
-# Upload via the API (or use the UI at http://$HOST_IP:3000)
 curl -X POST "http://localhost:8080/api/upload" \
   -F "file=@data/videos/<clip>.mp4" \
   -F "prompt=smoke test"
@@ -206,13 +217,24 @@ For a 149 s 720p clip at 15 fps you should see ~10 k–20 k events / 30–80 tra
 | Full teardown | `docker compose down`  (keeps `data/`) |
 | Wipe everything | `docker compose down -v && rm -rf data/videos data/models/*/*.engine` |
 
+### Optional: support/dev observability stack
+
+Loki + Promtail + Grafana ship as a separate compose file. Bring them up alongside the main stack to tail structured backend logs in Grafana at `http://$HOST_IP:3002` (default `admin` / `admin`):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
+```
+
+Set `LOG_FORMAT=json` in `.env` so logs land as JSON Lines and Promtail/Loki can parse fields cleanly. See [`../services/observability/`](../services/observability/README.md).
+
 ---
 
 ## Troubleshooting quick links
 
-- `frontend` build fails on `node_modules` collision → see [gotchas: frontend build](gotchas.md#frontend-build-fails-with-cannot-replace-to-directory--node_modules-with-file)
+- `frontend` build fails on `node_modules` collision → see [gotchas: frontend build](../gotchas.md#frontend-build-fails-with-cannot-replace-to-directory--node_modules-with-file)
 - `vss-rt-cv` exits with engine-serialize error → step 4 above (chmod)
-- Backend `CannotConnectNowError` on first boot → expected, recovers; tracked under burn-list item 5
+- Backend `CannotConnectNowError` on first boot → expected, recovers
 - `Stream Not Found (404)` from RTSP source in `vss-rt-cv` logs → expected before any upload; do step 7
+- `aims-cosmos` healthcheck unhealthy for 10–15 min on first boot → expected weight download; see [gotchas: cosmos healthcheck](../gotchas.md#aims-cosmos-healthcheck-fails-for-1015-minutes-on-first-boot)
 
-For anything else, check [`docs/gotchas.md`](gotchas.md).
+For anything else, check [`../gotchas.md`](../gotchas.md).
