@@ -10,5 +10,8 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY app/ app/
+COPY seed-videos/ seed-videos/
+COPY entrypoint.sh entrypoint.sh
+RUN chmod +x entrypoint.sh
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--limit-concurrency", "10"]
+ENTRYPOINT ["./entrypoint.sh"]

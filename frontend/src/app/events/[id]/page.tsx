@@ -3,7 +3,7 @@
 import { use, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
-  Bell, ChevronLeft, ChevronRight, ChevronRight as ChevronRightSm,
+  Bell, ChevronLeft, ChevronRight,
   Clock, Download, MapPin, Pause, Play, Shield, Sparkles,
   User, Video, X, Zap,
 } from 'lucide-react'
@@ -500,7 +500,7 @@ function LoadingSkeleton() {
         <Skeleton className="w-48 h-4" />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', flex: 1, minHeight: 0 }}>
-        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
           <Skeleton className="w-72 h-7" />
           <Skeleton className="w-full" style={{ aspectRatio: '16/9' } as React.CSSProperties} />
           <Skeleton className="w-full h-32" />
@@ -591,9 +591,9 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
       <div style={{ height: 48, borderBottom: '1px solid var(--border)', background: 'var(--surface-1)',
         display: 'flex', alignItems: 'center', padding: '0 20px', gap: 8, fontSize: 13, flexShrink: 0 }}>
         <Link href="/live" style={{ color: 'var(--fg-4)', textDecoration: 'none' }}>Live Ops</Link>
-        <ChevronRightSm size={11} style={{ color: 'var(--fg-4)' }} />
+        <ChevronRight size={11} style={{ color: 'var(--fg-4)' }} />
         <Link href="/events" style={{ color: 'var(--fg-3)', textDecoration: 'none' }}>Event Feed</Link>
-        <ChevronRightSm size={11} style={{ color: 'var(--fg-4)' }} />
+        <ChevronRight size={11} style={{ color: 'var(--fg-4)' }} />
         <span style={{ color: 'var(--fg-1)', fontWeight: 500, fontFamily: 'var(--font-mono)' }}>
           {shortId(detail.id)}
         </span>
@@ -610,7 +610,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', flex: 1, minHeight: 0, overflow: 'hidden' }}>
 
         {/* ── Left scrollable panel ── */}
-        <div style={{ padding: 24, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ padding: 20, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
           {/* Header */}
           <div>
@@ -713,7 +713,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
                           {cam.id} · {cam.distance}
                         </div>
                       </div>
-                      <ChevronRightSm size={12} style={{ color: 'var(--fg-4)', flexShrink: 0 }} />
+                      <ChevronRight size={12} style={{ color: 'var(--fg-4)', flexShrink: 0 }} />
                     </div>
                   </Link>
                 ))}

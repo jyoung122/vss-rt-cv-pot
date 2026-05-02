@@ -7,7 +7,28 @@ interface AimsTourStep extends DriveStep {
 }
 
 const STEPS: AimsTourStep[] = [
-  // Dashboard
+  // ── Sidebar orientation (dashboard page, sidebar always visible) ──────────
+  {
+    page: 'dashboard',
+    element: '[data-tour="sidebar"]',
+    popover: {
+      title: 'Navigation sidebar',
+      description:
+        'This sidebar is your primary navigation. It collapses to icon-only mode to give more space to the content — hover the edge or click the toggle to expand it.',
+      side: 'right',
+    },
+  },
+  {
+    page: 'dashboard',
+    element: '[data-tour="sidebar-nav"]',
+    popover: {
+      title: 'Four main sections',
+      description:
+        'Dashboard · Uploads · Incidents · Events. We\'ll walk through each one. The active page is always highlighted in the sidebar.',
+      side: 'right',
+    },
+  },
+  // ── Dashboard content ─────────────────────────────────────────────────────
   {
     page: 'dashboard',
     element: '[data-tour="kpi-grid"]',
@@ -15,6 +36,7 @@ const STEPS: AimsTourStep[] = [
       title: 'Analytics overview',
       description:
         'KPIs pulled from real upload data — events indexed, analyzed footage, and incident counts update as new videos are processed.',
+      side: 'bottom',
     },
   },
   {
@@ -29,23 +51,75 @@ const STEPS: AimsTourStep[] = [
   },
   {
     page: 'dashboard',
+    element: '[data-tour="trend-map"]',
+    popover: {
+      title: 'Detection trends & hotspots',
+      description:
+        'Daily detection volume by object type on the left; a density heatmap of high-activity intersections on the right.',
+      side: 'top',
+    },
+  },
+  {
+    page: 'dashboard',
+    element: '[data-tour="breakdown"]',
+    popover: {
+      title: 'Event breakdowns',
+      description:
+        'Three slices of the same detection data: by object class, by corridor, and by severity.',
+      side: 'top',
+    },
+  },
+  {
+    page: 'dashboard',
+    element: '[data-tour="heatmap-rules"]',
+    popover: {
+      title: 'Activity patterns & detection rules',
+      description:
+        'The heatmap shows when events happen across the week. The rules panel lists active detection rules, their trigger volumes, and false-positive rates.',
+      side: 'top',
+    },
+  },
+  {
+    page: 'dashboard',
     element: '[data-tour="recent-uploads"]',
     popover: {
       title: 'Recent uploads',
-      description: 'Jump straight to any recently processed video. Click a row to open the full detail view.',
-      side: 'left',
+      description:
+        'Jump straight to any recently processed video. Click a row to open the full detail view.',
+      side: 'top',
     },
   },
-  // Uploads list
+  // ── Transition: sidebar → Uploads ─────────────────────────────────────────
+  {
+    page: 'dashboard',
+    element: '[data-tour="nav-uploads"]',
+    popover: {
+      title: 'Uploads section',
+      description:
+        'Click Uploads in the sidebar to manage ingested videos and kick off analysis. Next, we\'ll take you there.',
+      side: 'right',
+    },
+  },
+  // ── Uploads list ──────────────────────────────────────────────────────────
+  {
+    page: 'uploads',
+    element: '[data-tour="nav-uploads"]',
+    popover: {
+      title: 'You\'re in Uploads',
+      description: 'Every video you ingest appears here. The sidebar always shows which section is active.',
+      side: 'right',
+    },
+  },
   {
     page: 'uploads',
     element: '[data-tour="uploads-list"]',
     popover: {
       title: 'Upload queue',
-      description: 'Every ingested video with its processing status. Click a row to open the timeline and incident analysis.',
+      description: 'Every ingested video with its processing status. Click a row to open the timeline scrubber and incident analysis.',
+      side: 'top',
     },
   },
-  // Upload detail
+  // ── Upload detail ─────────────────────────────────────────────────────────
   {
     page: 'detail',
     element: '[data-tour="scrubber"]',
@@ -75,7 +149,27 @@ const STEPS: AimsTourStep[] = [
       side: 'left',
     },
   },
-  // Incidents catalog
+  // ── Transition: sidebar → Incidents ───────────────────────────────────────
+  {
+    page: 'detail',
+    element: '[data-tour="nav-incidents"]',
+    popover: {
+      title: 'Incidents section',
+      description:
+        'The Incidents catalog gives you a cross-upload view of every flagged event. Next stop.',
+      side: 'right',
+    },
+  },
+  // ── Incidents catalog ─────────────────────────────────────────────────────
+  {
+    page: 'incidents',
+    element: '[data-tour="nav-incidents"]',
+    popover: {
+      title: 'You\'re in Incidents',
+      description: 'Use the sidebar to jump between sections at any time.',
+      side: 'right',
+    },
+  },
   {
     page: 'incidents',
     element: '[data-tour="incidents-catalog"]',
@@ -89,11 +183,25 @@ const STEPS: AimsTourStep[] = [
 
 const STORAGE_KEY = 'aims:tour:v1'
 
-const PAGE_PATHS: Record<TourPage, string> = {
+const STATIC_PAGE_PATHS: Record<Exclude<TourPage, 'detail'>, string> = {
   dashboard: '/',
   uploads: '/uploads',
-  detail: '/uploads',
   incidents: '/incidents',
+}
+
+async function resolvePagePath(page: TourPage): Promise<string> {
+  if (page !== 'detail') return STATIC_PAGE_PATHS[page]
+  try {
+    const res = await fetch('/api/uploads', { cache: 'no-store' })
+    if (res.ok) {
+      const data = await res.json()
+      const first = data.uploads?.[0]
+      if (first?.video_id) return `/uploads/${first.video_id}`
+    }
+  } catch {
+    // fall through to uploads list
+  }
+  return '/uploads'
 }
 
 function readProgress(): number | 'done' | null {
@@ -144,7 +252,7 @@ async function launchDriver(startIndex: number, navigate: (path: string) => void
         if (nextCrossPageIndex !== -1) {
           writeProgress(nextCrossPageIndex)
           d.destroy()
-          navigate(PAGE_PATHS[STEPS[nextCrossPageIndex].page])
+          void resolvePagePath(STEPS[nextCrossPageIndex].page).then(navigate)
         } else {
           markTourDone()
           d.destroy()

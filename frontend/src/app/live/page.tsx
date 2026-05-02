@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { Filter, LayoutGrid, List, MapPin } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { MapPin } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { type Scene, CameraScene } from '@/components/camera-scenes'
@@ -140,7 +140,7 @@ function CameraTile({ cam, t, wide }: { cam: Camera; t: number; wide: boolean })
       <div style={{ position: 'absolute', top: 8, left: 8, right: 8,
         display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <LiveDot color={alertColor ?? '#4a9'} label={alertColor ? 'ALERT' : 'LIVE'} />
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#fff',
+        <div suppressHydrationWarning style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#fff',
           background: 'rgba(0,0,0,0.5)', padding: '2px 6px', borderRadius: 2, letterSpacing: '0.05em' }}>
           {timeStr}
         </div>
@@ -173,7 +173,7 @@ function CameraTile({ cam, t, wide }: { cam: Camera; t: number; wide: boolean })
 
 function CameraWall({ t, viewMode }: { t: number; viewMode: 'grid' | 'list' }) {
   return (
-    <div style={{ padding: 16, background: 'var(--bg)', flex: 1, minHeight: 0, overflow: 'auto' }}>
+    <div style={{ padding: 20, background: 'var(--bg)', flex: 1, minHeight: 0, overflow: 'auto' }}>
       <div style={{
         display: 'grid',
         gridTemplateColumns: viewMode === 'grid' ? 'repeat(3, 1fr)' : '1fr',
@@ -208,7 +208,7 @@ const PIN_COLOR: Record<string, string> = {
 function MapStrip() {
   return (
     <div style={{ height: 160, flexShrink: 0, borderTop: '1px solid var(--border)',
-      background: 'var(--surface-1)', padding: '10px 16px', display: 'flex', flexDirection: 'column' }}>
+      background: 'var(--surface-1)', padding: '10px 20px', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, flexShrink: 0 }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg-2)',
           display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -252,7 +252,7 @@ function EventFeedPanel({ incidents, loading, selectedId, onSelect }: {
 }) {
   return (
     <div style={{ background: 'var(--surface-1)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0,
+      <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg-1)' }}>Event feed</div>
@@ -277,7 +277,7 @@ function EventFeedPanel({ incidents, loading, selectedId, onSelect }: {
             const status = incidentStatus(inc)
             return (
               <div key={inc.id} onClick={() => onSelect(inc.id)} style={{
-                padding: '14px 16px', borderBottom: '1px solid var(--border)', cursor: 'pointer',
+                padding: '14px 20px', borderBottom: '1px solid var(--border)', cursor: 'pointer',
                 background: isSelected ? 'color-mix(in srgb, var(--accent-500) 10%, transparent)' : 'transparent',
                 borderLeft: isSelected ? '3px solid var(--accent-500)' : '3px solid transparent',
                 paddingLeft: isSelected ? 13 : 16,
@@ -334,68 +334,12 @@ function EventFeedPanel({ incidents, loading, selectedId, onSelect }: {
   )
 }
 
-// ─── Sub-header ───────────────────────────────────────────────────────────────
-
-function SubHeader({ viewMode, setViewMode, incidents }: {
-  viewMode: 'grid' | 'list'
-  setViewMode: (v: 'grid' | 'list') => void
-  incidents: FeedIncident[]
-}) {
-  const highCount = incidents.filter((i) => i.severity === 'high').length
-  const pendingCount = incidents.filter((i) => i.vlm_status === 'pending').length
-
-  return (
-    <div style={{ height: 52, flexShrink: 0, borderBottom: '1px solid var(--border)',
-      background: 'var(--surface-1)', display: 'flex', alignItems: 'center', padding: '0 20px', gap: 16 }}>
-      <div>
-        <div style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 600,
-          letterSpacing: '-0.01em', color: 'var(--fg-1)' }}>Live operations</div>
-        <div style={{ fontSize: 11, color: 'var(--fg-4)' }}>
-          Traffic &amp; infrastructure · {CAMERAS.length} cameras shown
-        </div>
-      </div>
-      <div style={{ flex: 1 }} />
-      {highCount > 0 && (
-        <span style={{
-          fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 3,
-          textTransform: 'uppercase', letterSpacing: '0.06em', border: '1px solid',
-          color: 'var(--warn-300)',
-          background: 'color-mix(in srgb, var(--warn-500) 14%, transparent)',
-          borderColor: 'color-mix(in srgb, var(--warn-500) 30%, transparent)',
-        }}>{highCount} high</span>
-      )}
-      {pendingCount > 0 && (
-        <span style={{
-          fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 3,
-          textTransform: 'uppercase', letterSpacing: '0.06em', border: '1px solid',
-          color: 'var(--fg-3)', background: 'var(--surface-3)', borderColor: 'var(--border)',
-        }}>{pendingCount} open</span>
-      )}
-      <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
-      <Button variant="ghost" size="sm" className="gap-1.5 h-7 px-2.5 text-[11px]">
-        <Filter size={11} /> Filter
-      </Button>
-      <div style={{ display: 'flex', background: 'var(--surface-2)',
-        border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: 2 }}>
-        {(['grid', 'list'] as const).map((m) => (
-          <Button key={m} variant="ghost" size="sm"
-            onClick={() => setViewMode(m)}
-            className={`h-[26px] w-[30px] p-0 rounded-[3px] ${
-              viewMode === m ? 'bg-[var(--surface-3)] text-[var(--fg-1)]' : 'text-[var(--fg-4)]'
-            }`}>
-            {m === 'grid' ? <LayoutGrid size={13} /> : <List size={13} />}
-          </Button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LiveOpsPage() {
+  const searchParams = useSearchParams()
+  const viewMode = (searchParams.get('view') as 'grid' | 'list') ?? 'grid'
   const [t, setT] = useState(0)
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [incidents, setIncidents] = useState<FeedIncident[]>([])
   const [loading, setLoading] = useState(true)
@@ -430,7 +374,6 @@ export default function LiveOpsPage() {
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-hidden">
-      <SubHeader viewMode={viewMode} setViewMode={setViewMode} incidents={incidents} />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', flex: 1, minHeight: 0 }}>
         {/* Left: camera wall + map strip */}
         <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, borderRight: '1px solid var(--border)' }}>

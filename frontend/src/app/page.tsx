@@ -31,7 +31,17 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
+
+const DEMO_NOTICE_KEY = 'aims:demo-notice:v1'
 
 const KPI_TRENDS = {
   events: [12, 18, 15, 22, 19, 28, 24, 31, 27, 34, 29, 38],
@@ -80,6 +90,11 @@ export default function DashboardPage() {
   const [incidentCount, setIncidentCount] = useState<number | null>(null)
   const [vlmConfirmedCount, setVlmConfirmedCount] = useState<number | null>(null)
   const [incidentsLoading, setIncidentsLoading] = useState(true)
+  const [demoNoticeOpen, setDemoNoticeOpen] = useState(false)
+
+  useEffect(() => {
+    if (!localStorage.getItem(DEMO_NOTICE_KEY)) setDemoNoticeOpen(true)
+  }, [])
 
   useEffect(() => {
     if (!hasSeenTour()) resumeTourIfNeeded('dashboard', router.push)
@@ -172,9 +187,15 @@ export default function DashboardPage() {
 
   const latestUploads = uploads.slice(0, 5)
 
+  function dismissDemoNotice() {
+    localStorage.setItem(DEMO_NOTICE_KEY, '1')
+    setDemoNoticeOpen(false)
+  }
+
   return (
     <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-auto px-4">
+      <DemoNoticeDialog open={demoNoticeOpen} onDismiss={dismissDemoNotice} />
+      <div className="flex-1 overflow-auto p-5">
         <div className="w-full">
           <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
@@ -270,18 +291,18 @@ export default function DashboardPage() {
             />
           </div>
 
-          <div className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-[1.45fr_1fr]">
+          <div data-tour="trend-map" className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-[1.45fr_1fr]">
             <TrendCard />
             <MapCard />
           </div>
 
-          <div className="mb-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
+          <div data-tour="breakdown" className="mb-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
             <BreakdownCard title="By event type" items={EVENT_BREAKDOWN} />
             <BreakdownCard title="By corridor" items={CORRIDOR_BREAKDOWN} />
             <BreakdownCard title="By severity" items={SEVERITY_BREAKDOWN} />
           </div>
 
-          <div className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-[2fr_1fr]">
+          <div data-tour="heatmap-rules" className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-[2fr_1fr]">
             <HeatmapCard />
             <RulesCard />
           </div>
@@ -886,6 +907,61 @@ function OutcomesCard() {
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+function DemoNoticeDialog({ open, onDismiss }: { open: boolean; onDismiss: () => void }) {
+  const rows: { label: string; status: 'live' | 'demo' }[] = [
+    { label: 'Events indexed / Analyzed footage', status: 'live' },
+    { label: 'Rule-detected incidents', status: 'live' },
+    { label: 'VLM-confirmed incidents', status: 'live' },
+    { label: 'Trend chart, hotspot map', status: 'demo' },
+    { label: 'Event / corridor / severity breakdowns', status: 'demo' },
+    { label: 'Activity heatmap, detection rules', status: 'demo' },
+    { label: 'Outcomes & clearance times', status: 'demo' },
+  ]
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onDismiss() }}>
+      <DialogContent showCloseButton={false} className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="font-display text-base">About this dashboard</DialogTitle>
+          <DialogDescription>
+            The top KPI tiles reflect real data from videos you upload and process.
+            The analytics panels below are placeholder data for the v1 reporting surface —
+            they illustrate what the full operations view will show when connected to live feeds.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="divide-y divide-border rounded-[3px] border text-xs">
+          <div className="grid grid-cols-[1fr_auto] gap-3 px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wide text-[10px]">
+            <span>Section</span>
+            <span>Source</span>
+          </div>
+          {rows.map((row) => (
+            <div key={row.label} className="grid grid-cols-[1fr_auto] items-center gap-3 px-3 py-2">
+              <span className="text-foreground/85">{row.label}</span>
+              <Badge
+                variant="outline"
+                className={
+                  row.status === 'live'
+                    ? 'border-[color:var(--ok-500)]/40 bg-[color:var(--ok-500)]/10 text-[color:var(--ok-300)]'
+                    : 'border-border text-muted-foreground'
+                }
+              >
+                {row.status === 'live' ? 'live' : 'demo'}
+              </Badge>
+            </div>
+          ))}
+        </div>
+
+        <DialogFooter>
+          <Button onClick={onDismiss} className="w-full sm:w-auto">
+            Got it
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

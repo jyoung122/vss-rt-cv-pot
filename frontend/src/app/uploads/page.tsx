@@ -58,7 +58,7 @@ const STAGE_LABELS = ['UPLOAD', 'INGEST', 'CV ANALYSIS', 'INDEX'] as const
 
 export default function UploadsPage() {
   return (
-    <Suspense fallback={<div className="flex-1 p-8 text-sm text-muted-foreground">Loading uploads…</div>}>
+    <Suspense fallback={<div className="flex-1 p-5 text-sm text-muted-foreground">Loading uploads…</div>}>
       <UploadsContent />
     </Suspense>
   )
@@ -223,7 +223,7 @@ function UploadsContent() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-auto px-8 py-6">
+      <div className="flex-1 overflow-auto p-5">
         <div className="mx-auto max-w-[1280px]">
           {/* Page header */}
           <div className="mb-5 flex items-baseline justify-between">

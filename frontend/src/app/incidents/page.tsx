@@ -266,7 +266,7 @@ function RuleDetail({
 }) {
   if (loading || !entry) {
     return (
-      <div className="flex-1 overflow-auto p-7 space-y-4">
+      <div className="flex-1 overflow-auto p-5 space-y-4">
         <Skeleton className="h-10 w-64" />
         <Skeleton className="h-3 w-full" />
         <Skeleton className="h-3 w-3/4" />
@@ -279,7 +279,7 @@ function RuleDetail({
 
   return (
     <div className="flex-1 overflow-auto">
-      <div className="max-w-2xl p-7">
+      <div className="max-w-2xl p-5">
         {/* Header */}
         <div className="flex items-center gap-3 mb-2">
           <div

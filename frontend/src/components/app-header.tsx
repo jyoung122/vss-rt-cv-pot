@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   CalendarDays,
   Check,
   ChevronRight,
   Download,
+  LayoutGrid,
+  List,
   MapPinned,
   Plus,
   Search,
@@ -39,6 +41,7 @@ type RangeId = (typeof RANGES)[number]['id']
 export function AppHeader() {
   const pathname = usePathname()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [range, setRange] = useState<RangeId>('30d')
   const [upload, setUpload] = useState<UploadRecord | null>(null)
   const [search, setSearch] = useState('')
@@ -203,6 +206,31 @@ export function AppHeader() {
             </TooltipTrigger>
             <TooltipContent>Coming in v1.5</TooltipContent>
           </Tooltip>
+        </>
+      ) : pathname === '/live' ? (
+        <>
+          <span className="font-display text-[13px] font-medium text-foreground">
+            Live Ops
+          </span>
+          <div className="flex-1" />
+          <div
+            className="flex rounded-[3px] border p-0.5"
+            style={{ background: 'var(--surface-2)' }}
+          >
+            {(['grid', 'list'] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => router.replace(`/live?view=${m}`, { scroll: false })}
+                className={`flex h-[26px] w-[30px] items-center justify-center rounded-[3px] transition-colors ${
+                  (searchParams.get('view') ?? 'grid') === m
+                    ? 'bg-[var(--surface-3)] text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {m === 'grid' ? <LayoutGrid size={13} /> : <List size={13} />}
+              </button>
+            ))}
+          </div>
         </>
       ) : (
         <>
