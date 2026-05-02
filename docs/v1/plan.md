@@ -4,7 +4,7 @@
 
 **Posture:** POT is the app. No auth, no IVM service integration. Upload-only. The IVM repo (`intelligent-video-monitoring/`) is harvested for brand + UI assets, then frozen.
 
-**Prior plan:** [V1_PLAN_INTEGRATION_ARCHIVED.md](../../V1_PLAN_INTEGRATION_ARCHIVED.md) — abandoned per 2026-04-30 scope reset (auth dropped, IVM service integration dropped).
+**Prior plan:** the original auth + IVM-integration plan was abandoned per the 2026-04-30 scope reset (auth dropped, IVM service integration dropped).
 
 ---
 
@@ -59,7 +59,7 @@ Phase 7  Incident detection — rules (Phase A)      (1½ days)    ✅
 Phase 8  Cosmos-Reason 2 validation (Phase B)      (2½ days)    ✅
 Phase 9  Support/dev observability v0              (½ day)      ✅
 Phase 7/8 follow-on — incidents UX polish          (½ day)      ✅
-Phase 10 Product tour (in-app guided walkthrough)   (½ day)
+Phase 10 Product tour (in-app guided walkthrough)   (½ day)      ✅ (verify-on-live #43 outstanding)
 ```
 
 Total: ~8–10 days.
@@ -163,14 +163,21 @@ Structured stdout logs and an optional OSS log UI for support/dev debugging. Sco
 
 First-run guided walkthrough so a stakeholder can self-serve the demo: Dashboard → Uploads → detail page (Events / Scenarios / scrubber bands) → Incidents catalog. Library: **[driver.js](https://driverjs.com/)** (MIT, ~5 KB, framework-agnostic, themable via CSS so it inherits our shadcn / OpsVision tokens). Alternatives considered: `react-joyride` (heavier, opinionated React state), `shepherd.js` (Popper-heavy), `onborda` (Next.js-native but young). driver.js wins on size + zero React coupling for our static-first marketing-style tour.
 
-39. ⏳ Add `driver.js` to `frontend/package.json`; wrap in `frontend/src/lib/tour.ts` with a typed `startTour(name)` helper and step registry per route.
-40. ⏳ Theme overrides in `frontend/src/app/globals.css` — popover background/border/text via `--bg-*` / `--fg-*` / `--accent-500` so light/dark both work without hex.
-41. ⏳ Step content for Dashboard (KPIs, rule-detected vs VLM-confirmed split), Uploads list, upload detail (Events tab, Scenarios tab, scrubber band layer), Incidents catalog page.
-42. ⏳ Persist "tour seen" in `localStorage` (`aims:tour:v1`); auto-launch once on first dashboard visit, plus a manual "Take the tour" button in the header (next to theme toggle).
+39. ✅ `driver.js` added to `frontend/package.json`; `frontend/src/lib/tour.ts` exposes `startTour(navigate)` / `resumeTourIfNeeded(page, navigate)` with a typed step registry keyed by `TourPage`. Commit `84258bf`.
+40. ✅ Theme overrides for the popover land in `frontend/src/app/globals.css` under `.aims-tour-popover` — background/border/text/buttons resolve via `--bg-*` / `--fg-*` / `--accent-*` so light + dark both work without hex.
+41. ✅ Step content covers sidebar orientation, Dashboard (KPIs, VLM-confirmed split, trends, breakdowns, heatmap, recent uploads), Uploads list, upload detail (scrubber, Events tab, Scenarios tab), and Incidents catalog. Cross-page transitions rehydrate via `localStorage` progress + `resolvePagePath` (resolves `/uploads/[id]` from the most recent upload).
+42. ✅ "Tour seen" persisted in `localStorage` under `aims:tour:v1`; auto-launch on first dashboard visit + manual "Take the tour" entry in the header next to the theme toggle (`frontend/src/components/app-header.tsx`).
 43. ⏳ Verify the tour on a fresh browser profile against the live A6000 deploy — every selector resolves, no scroll traps, console clean.
 
+### Shipped post-Phase 10 (not originally scoped)
+- ✅ `/events` global cross-upload view with animated event detail page (shared SVG camera scenes, bounding-box overlay scrubber, AI summary panel, dispatch/export side panel). Commits `3354cc4`, `ddd42dd`.
+- ✅ `/live` page using shared `camera-scenes.tsx` dispatcher (extracted from events detail).
+- ✅ `/rules` Rule Builder page — camera selection + detection rule configuration UI. Commit `ddd42dd`.
+- ✅ `scripts/dev-up.sh` — clean dev-environment bring-up (avoids container-name collisions). Commit `ddd42dd`.
+- ✅ Backend `app/incidents.py` + `app/seed.py` + `entrypoint.sh` + `seed-videos/` — seed flow for demo data. Commit `ddd42dd`.
+- ✅ Per-service docs scaffolded under `docs/v1/services/**` (frontend, backend, deepstream, cosmos, postgres, redis, nvstreamer, sdr, observability) and architecture overview at `docs/v1/architecture.md`.
+
 ### Deferred (not blocking v1 demo)
-- ⏸ `/events` global view (cross-upload filtering)
 - ⏸ `/settings` page real content
 - ⏸ Per-clip thumbnails (`ffprobe -ss` frame extraction)
 - ⏸ NvDCF tracker swap (currently IOU) — would reduce track-ID swap false positives in the rule pack
