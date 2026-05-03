@@ -18,6 +18,19 @@ ERROR: cannot replace to directory /var/lib/docker/overlay2/.../merged/app/node_
 target frontend: failed to solve: ...
 ```
 
+### `frontend` build fails on `useSearchParams() should be wrapped in a suspense boundary`
+
+**Cause.** Next.js 15 refuses to statically prerender any route whose render tree calls `useSearchParams()` outside a `<Suspense>` boundary. `<AppHeader>` lives in the root layout and reads `useSearchParams()` (for the `/live` view toggle), so the implicit `/_not-found` page — which still renders the layout — fails the static export.
+
+**Fix.** `frontend/src/app/layout.tsx` wraps `<AppHeader />` in `<Suspense fallback={...}>`. Already in tree as of post-Phase-10 — don't unwrap it.
+
+**Symptom in logs.**
+```
+⨯ useSearchParams() should be wrapped in a suspense boundary at page "/404".
+Error occurred prerendering page "/_not-found".
+target frontend: failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 1
+```
+
 ---
 
 ## Model staging

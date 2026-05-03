@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { MapPin } from 'lucide-react'
@@ -337,6 +337,14 @@ function EventFeedPanel({ incidents, loading, selectedId, onSelect }: {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LiveOpsPage() {
+  return (
+    <Suspense fallback={null}>
+      <LiveOpsContent />
+    </Suspense>
+  )
+}
+
+function LiveOpsContent() {
   const searchParams = useSearchParams()
   const viewMode = (searchParams.get('view') as 'grid' | 'list') ?? 'grid'
   const [t, setT] = useState(0)

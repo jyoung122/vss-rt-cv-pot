@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import { Inter, JetBrains_Mono, Space_Grotesk } from 'next/font/google'
 import './globals.css'
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -61,7 +62,9 @@ export default function RootLayout({
             <SidebarProvider className="h-svh">
               <AppSidebar />
               <SidebarInset className="min-h-0 overflow-hidden">
-                <AppHeader />
+                <Suspense fallback={<div className="min-h-14 shrink-0 border-b" />}>
+                  <AppHeader />
+                </Suspense>
                 <div className="flex min-h-0 flex-1 flex-col">{children}</div>
               </SidebarInset>
             </SidebarProvider>
