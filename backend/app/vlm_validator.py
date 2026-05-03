@@ -27,16 +27,11 @@ DATA_DIR = os.getenv("DATA_DIR", "/data")
 
 _PROMPTS: dict[str, str] = {
     "vehicle_collision": (
-        "You are analyzing a traffic camera clip for evidence of a vehicle collision. "
-        "Confirm if you see ANY of: vehicles in contact or overlapping; visibly damaged "
-        "or crumpled bodywork; debris on the road around a vehicle (broken glass, "
-        "plastic, bumper or panel pieces, scattered cargo); fluid pools or smoke near a "
-        "vehicle; a vehicle stopped at an unusual angle, against another vehicle, off "
-        "the lane, or in the middle of an intersection with debris around it; two or "
-        "more vehicles that came to a sudden simultaneous stop after contact. The "
-        "moment of impact may NOT be in the clip — aftermath evidence alone is "
-        "sufficient to confirm. Reject only if the scene shows normal traffic with no "
-        "damage, debris, or unusual stopping. "
+        "Detect whether this traffic camera clip shows a vehicle collision or collision aftermath. "
+        "Confirm if you clearly see any collision evidence: vehicles touching or overlapping, visible damage, broken parts, debris, glass, cargo, smoke, fluid, or a vehicle stopped abnormally in the road, intersection, off-lane, sideways, or against another vehicle. "
+        "The impact does not need to be shown; aftermath evidence is enough. "
+        "Reject only if traffic appears normal with no visible damage, debris, smoke, fluid, contact, or abnormal stopping. "
+        "Use uncertain if the video is blurry, blocked, dark, or the evidence is unclear. "
         'Respond ONLY with JSON: {"verdict": "confirmed"|"rejected"|"uncertain", '
         '"confidence": 0.0-1.0, "reasoning": "one concise sentence"}'
     ),
@@ -59,6 +54,29 @@ _PROMPTS: dict[str, str] = {
         '"confidence": 0.0-1.0, "reasoning": "one concise sentence"}'
     ),
 }
+
+
+def _clip_window(rule_id: str, t_start_s: float, t_end_s: float, metadata: dict) -> tuple[float, float]:
+    """Per-rule (clip_start_s, duration_s) for VLM extraction.
+
+    Sending Cosmos a tight clip centred on the diagnostic moment beats the
+    full incident span. A 45 s clip of mostly-normal traffic with the impact
+    buried inside is harder to read than 8 s framed on the contact frame.
+    """
+    if rule_id == "vehicle_collision":
+        # Centre on iou_peak_t (actual contact frame). Fall back to t_start_s
+        # for older rows that don't have it stored in metadata.
+        peak = metadata.get("iou_peak_t")
+        center = float(peak) if peak is not None else float(t_start_s)
+        return max(0.0, center - 2.0), 8.0
+    if rule_id == "ped_impact":
+        return max(0.0, t_start_s - 2.0), 8.0
+    if rule_id == "stationary_vehicle":
+        return max(0.0, t_start_s), 8.0
+    if rule_id == "mass_stop":
+        return max(0.0, t_start_s - 1.0), 5.0
+    # Unknown rule: legacy full-span fallback so the worker degrades safely.
+    return max(0.0, t_start_s - CLIP_PAD_S), (t_end_s - t_start_s) + CLIP_PAD_S * 2
 
 
 async def _extract_clip(video_path: Path, clip_path: Path, t_start: float, duration: float) -> None:
@@ -159,7 +177,7 @@ async def run_vlm_validation(video_id: str, pool) -> int:
     """
     log.info("vlm_validator.run.start", extra={"video_id": video_id, "vlm_enabled": VLM_ENABLED})
     rows = await pool.fetch(
-        "SELECT id, rule_id, t_start_s, t_end_s FROM incidents "
+        "SELECT id, rule_id, t_start_s, t_end_s, metadata FROM incidents "
         "WHERE video_id=$1 AND vlm_status='pending'",
         video_id,
     )
@@ -200,8 +218,10 @@ async def run_vlm_validation(video_id: str, pool) -> int:
     for row in rows:
         inc_id = str(row["id"])
         rule_id = row["rule_id"]
-        t_start = max(0.0, row["t_start_s"] - CLIP_PAD_S)
-        duration = (row["t_end_s"] - row["t_start_s"]) + CLIP_PAD_S * 2
+        metadata = row["metadata"]
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
+        t_start, duration = _clip_window(rule_id, row["t_start_s"], row["t_end_s"], metadata or {})
         clip_path = clips_dir / f"{inc_id}.mp4"
 
         try:

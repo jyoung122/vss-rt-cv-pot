@@ -414,6 +414,7 @@ def _rule_vehicle_collision(
         "bbox_union": _bbox_union(peak_rows or list(t_a.values())[:1] + list(t_b.values())[:1]),
         "metadata": {
             "iou_peak": round(iou_peak, 4),
+            "iou_peak_t": round(peak_t, 4),
             "velocity_drop_a": round(a_drop, 2),
             "velocity_drop_b": round(b_drop, 2),
             "stationary_after_a_s": round(stat_a, 2),
