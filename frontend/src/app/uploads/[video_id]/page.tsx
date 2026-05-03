@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils'
 import {
   type UploadRecord,
   type TrackSummary,
+  type RawDetection,
   type Incident,
   type RuleId,
   type Severity,
@@ -129,6 +130,11 @@ export default function UploadDetailPage() {
   const [playing, setPlaying] = useState(false)
   const [selectedTrackIdx, setSelectedTrackIdx] = useState<number | null>(null)
 
+  // Bbox overlay (debug viz: confirm track-ID continuity across frames)
+  const [showBboxes, setShowBboxes] = useState(false)
+  const [rawEvents, setRawEvents] = useState<RawDetection[] | null>(null)
+  const [rawLoading, setRawLoading] = useState(false)
+
   // ─── Data fetch ────────────────────────────────────────────────────────────
 
   const load = useCallback(async () => {
@@ -177,6 +183,18 @@ export default function UploadDetailPage() {
   useEffect(() => {
     resumeTourIfNeeded('detail', router.push)
   }, [router])
+
+  // Lazy-fetch raw events on first overlay toggle. Response can be 5-10 MB
+  // so we don't pay for it unless the debug overlay is actually used.
+  useEffect(() => {
+    if (!showBboxes || rawEvents !== null || rawLoading) return
+    setRawLoading(true)
+    void fetch(`/api/uploads/${videoId}/events?group=none`, { cache: 'no-store' })
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data) => setRawEvents(data.events ?? []))
+      .catch(() => setRawEvents([]))
+      .finally(() => setRawLoading(false))
+  }, [showBboxes, rawEvents, rawLoading, videoId])
 
   // ─── Player helpers ────────────────────────────────────────────────────────
 
@@ -378,6 +396,34 @@ export default function UploadDetailPage() {
                 className="block w-full"
                 style={{ maxHeight: 440, objectFit: 'contain', background: '#000' }}
               />
+              {/* Bbox overlay (debug) — only mounted when toggled on */}
+              {showBboxes && rawEvents && upload.width && upload.height && (
+                <BboxOverlay
+                  videoRef={videoRef}
+                  events={rawEvents}
+                  videoWidth={upload.width}
+                  videoHeight={upload.height}
+                  fps={upload.fps ?? 15}
+                />
+              )}
+              {/* Overlay toggle (top-right) */}
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setShowBboxes((v) => !v)}
+                className="absolute right-3 top-3 h-6 gap-1 px-2 font-mono text-[10px] tracking-[0.05em]"
+                style={{
+                  background: showBboxes
+                    ? 'color-mix(in srgb, var(--accent-500) 80%, transparent)'
+                    : 'color-mix(in srgb, var(--ink-900) 70%, transparent)',
+                  color: 'var(--fg-1)',
+                  border: showBboxes
+                    ? '1px solid var(--accent-500)'
+                    : '1px solid var(--border)',
+                }}
+              >
+                {rawLoading ? 'LOADING…' : showBboxes ? 'BBOXES ON' : 'BBOXES OFF'}
+              </Button>
               {/* Overlay timestamp */}
               <div
                 className="absolute left-3 top-3 font-mono text-[10px] tracking-[0.05em] text-white"
@@ -1178,4 +1224,179 @@ function LoadingShell() {
       </div>
     </div>
   )
+}
+
+// ─── Debug bbox overlay ──────────────────────────────────────────────────────
+//
+// Renders all detection bboxes for the current video frame, coloured by
+// track_id (golden-angle hash → HSL). Goal: lets a human verify whether
+// DeepStream's tracker keeps the same ID across frames or reuses it across
+// loop iterations of the same source. Multiple boxes labelled with the same
+// ID at the same time = ID reuse confounder.
+
+function BboxOverlay({
+  videoRef,
+  events,
+  videoWidth,
+  videoHeight,
+  fps,
+}: {
+  videoRef: React.RefObject<HTMLVideoElement | null>
+  events: RawDetection[]
+  videoWidth: number
+  videoHeight: number
+  fps: number
+}) {
+  const [tick, setTick] = useState(0)
+  const [box, setBox] = useState({ w: 0, h: 0 })
+
+  // rAF loop drives smooth bbox follow. Reads currentTime each frame; pause
+  // doesn't stop the loop because we still want the boxes pinned on the
+  // paused frame.
+  useEffect(() => {
+    let raf = 0
+    const step = () => {
+      setTick((t) => t + 1)
+      raf = requestAnimationFrame(step)
+    }
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
+  }, [])
+
+  // Track the rendered video size so we can scale native coords correctly.
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    const update = () => {
+      const r = v.getBoundingClientRect()
+      setBox({ w: r.width, h: r.height })
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(v)
+    return () => ro.disconnect()
+  }, [videoRef])
+
+  // Sort by t_seconds once so we can binary-search the visible window each
+  // frame. Frame-id-based lookup was unreliable: events are stored with an
+  // effective rate that doesn't always match `uploads.fps`, so rounded frame
+  // numbers landed in empty buckets and the overlay flickered.
+  const sortedEvents = useMemo(() => {
+    return [...events].sort((a, b) => a.t_seconds - b.t_seconds)
+  }, [events])
+  const sortedTimes = useMemo(() => sortedEvents.map((e) => e.t_seconds), [sortedEvents])
+
+  if (!box.w || !box.h) return null
+
+  const v = videoRef.current
+  const currentTime = v ? v.currentTime : 0
+
+  // Letterbox math: the <video> uses object-fit: contain, so the actual
+  // pixel area is centred and may have black bars. Compute the real display
+  // rectangle so bboxes line up with what's visible.
+  const videoAR = videoWidth / videoHeight
+  const containerAR = box.w / box.h
+  let displayW: number, displayH: number, offsetX: number, offsetY: number
+  if (containerAR > videoAR) {
+    displayH = box.h
+    displayW = displayH * videoAR
+    offsetX = (box.w - displayW) / 2
+    offsetY = 0
+  } else {
+    displayW = box.w
+    displayH = displayW / videoAR
+    offsetX = 0
+    offsetY = (box.h - displayH) / 2
+  }
+
+  const sx = displayW / videoWidth
+  const sy = displayH / videoHeight
+
+  // Binary-search the [currentTime - tol, currentTime + tol] window. Tolerance
+  // is half a source-frame so each playback frame typically matches one set
+  // of detections. Within the window, keep one event per track_id (the one
+  // closest to currentTime) so loop-iteration duplicates collapse to one box.
+  const tol = 1 / (2 * Math.max(fps, 1))
+  const lo = lowerBound(sortedTimes, currentTime - tol)
+  const hi = upperBound(sortedTimes, currentTime + tol)
+  const closestPerTrack = new Map<number, RawDetection>()
+  for (let i = lo; i < hi; i++) {
+    const e = sortedEvents[i]
+    const cur = closestPerTrack.get(e.track_id)
+    if (!cur || Math.abs(e.t_seconds - currentTime) < Math.abs(cur.t_seconds - currentTime)) {
+      closestPerTrack.set(e.track_id, e)
+    }
+  }
+  const visible = Array.from(closestPerTrack.values())
+  // tick is read here only to keep TS/eslint from flagging it unused — the
+  // rAF triggers a render each frame which re-evaluates currentTime above.
+  void tick
+
+  return (
+    <div className="pointer-events-none absolute inset-0">
+      {visible.map((e, i) => {
+        const left = offsetX + e.bbox.x1 * sx
+        const top = offsetY + e.bbox.y1 * sy
+        const w = (e.bbox.x2 - e.bbox.x1) * sx
+        const h = (e.bbox.y2 - e.bbox.y1) * sy
+        const color = trackColor(e.track_id)
+        return (
+          <div
+            key={`${e.frame_id}-${e.track_id}-${i}`}
+            className="absolute"
+            style={{
+              left,
+              top,
+              width: w,
+              height: h,
+              border: `2px solid ${color}`,
+              boxShadow: '0 0 0 1px rgba(0,0,0,0.6)',
+            }}
+          >
+            <div
+              className="absolute -top-[18px] left-0 px-1 font-mono text-[10px] font-semibold leading-[16px]"
+              style={{
+                background: color,
+                color: 'black',
+                borderRadius: 2,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              #{e.track_id} · {e.class}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// Golden-angle hash → HSL, deterministic per track_id with good separation.
+function trackColor(trackId: number): string {
+  const hue = (trackId * 137.508) % 360
+  return `hsl(${hue}, 80%, 60%)`
+}
+
+// Smallest index i such that arr[i] >= x. arr is sorted ascending.
+function lowerBound(arr: number[], x: number): number {
+  let lo = 0
+  let hi = arr.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (arr[mid] < x) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
+// Smallest index i such that arr[i] > x.
+function upperBound(arr: number[], x: number): number {
+  let lo = 0
+  let hi = arr.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (arr[mid] <= x) lo = mid + 1
+    else hi = mid
+  }
+  return lo
 }
