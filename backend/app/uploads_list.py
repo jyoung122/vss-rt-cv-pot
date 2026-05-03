@@ -99,6 +99,59 @@ async def delete_upload(video_id: str):
     return Response(status_code=204)
 
 
+@router.get("/api/uploads/{video_id}/progress")
+async def get_upload_progress(video_id: str):
+    vlm_enabled = os.environ.get("VLM_ENABLED", "false").lower() == "true"
+    pool = get_pool()
+    row = await pool.fetchrow(
+        """
+        SELECT
+            u.video_id,
+            u.duration_s,
+            COALESCE(e.event_count, 0)::int AS event_count,
+            COALESCE(i.incidents_total, 0)::int AS incidents_total,
+            COALESCE(i.vlm_pending, 0)::int AS vlm_pending,
+            COALESCE(i.vlm_done, 0)::int AS vlm_done,
+            COALESCE(i.vlm_skipped, 0)::int AS vlm_skipped,
+            COALESCE(i.vlm_error, 0)::int AS vlm_error
+        FROM uploads u
+        LEFT JOIN (
+            SELECT video_id, COUNT(*) AS event_count
+            FROM events
+            WHERE video_id = $1
+            GROUP BY video_id
+        ) e ON e.video_id = u.video_id
+        LEFT JOIN (
+            SELECT
+                video_id,
+                COUNT(*)::int AS incidents_total,
+                COUNT(*) FILTER (WHERE vlm_status = 'pending')::int AS vlm_pending,
+                COUNT(*) FILTER (WHERE vlm_status = 'done')::int AS vlm_done,
+                COUNT(*) FILTER (WHERE vlm_status = 'skipped')::int AS vlm_skipped,
+                COUNT(*) FILTER (WHERE vlm_status = 'error')::int AS vlm_error
+            FROM incidents
+            WHERE video_id = $1
+            GROUP BY video_id
+        ) i ON i.video_id = u.video_id
+        WHERE u.video_id = $1
+        """,
+        video_id,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    return {
+        "video_id": row["video_id"],
+        "duration_s": row["duration_s"],
+        "event_count": row["event_count"],
+        "incidents_total": row["incidents_total"],
+        "vlm_pending": row["vlm_pending"],
+        "vlm_done": row["vlm_done"],
+        "vlm_skipped": row["vlm_skipped"],
+        "vlm_error": row["vlm_error"],
+        "vlm_enabled": vlm_enabled,
+    }
+
+
 @router.get("/api/uploads/{video_id}/events")
 async def get_upload_events(video_id: str, group: str = "tracks"):
     pool = get_pool()

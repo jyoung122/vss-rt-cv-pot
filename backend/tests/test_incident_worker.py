@@ -2,8 +2,10 @@ import asyncio
 import unittest
 
 from backend.app.incident_worker import (
+    ThresholdConfig,
     _build_track_signals,
     _detect_incidents,
+    _merge_overlapping,
     _refresh_incidents,
 )
 from tools.synthetic_mdx_publisher import _collision_geometry
@@ -52,7 +54,7 @@ class FakeConn:
 
 class IncidentWorkerTests(unittest.TestCase):
     def test_default_synthetic_collision_produces_vehicle_collision(self):
-        incidents = _detect_incidents(_collision_rows(), fps=30.0)
+        incidents = _detect_incidents(_collision_rows(), fps=30.0, cfg=ThresholdConfig())
         collisions = [inc for inc in incidents if inc["rule_id"] == "vehicle_collision"]
 
         self.assertEqual(1, len(collisions))
@@ -106,6 +108,50 @@ class IncidentWorkerTests(unittest.TestCase):
         self.assertEqual(0, count)
         self.assertEqual(["stale"], conn.deleted_video_ids)
         self.assertEqual([], conn.incidents)
+
+    def test_merge_overlapping_collapses_brake_wave_to_densest(self):
+        # Synthetic mass_stop firings mimicking the live A100 run at t≈53s:
+        # the same physical brake wave fires four times as the sliding window
+        # picks up different track sets. Densest = (5 tracks, 2.0s span) wins.
+        firings = [
+            self._mass_stop(t_start=52.13, t_end=54.00, tracks=[2, 3, 24, 26]),
+            self._mass_stop(t_start=52.80, t_end=54.13, tracks=[2, 3, 4, 24, 26]),
+            self._mass_stop(t_start=53.20, t_end=55.20, tracks=[2, 3, 4, 19, 26]),
+            self._mass_stop(t_start=53.73, t_end=55.20, tracks=[2, 3, 4, 19]),
+        ]
+        merged = _merge_overlapping(firings)
+        self.assertEqual(1, len(merged))
+        self.assertEqual(sorted([2, 3, 4, 19, 26]), merged[0]["track_ids"])
+        self.assertEqual(4, merged[0]["metadata"]["merged_firings"])
+
+    def test_merge_overlapping_keeps_disjoint_clusters_separate(self):
+        firings = [
+            self._mass_stop(t_start=10.0, t_end=12.0, tracks=[1, 2, 3, 4]),
+            self._mass_stop(t_start=10.5, t_end=12.3, tracks=[1, 2, 3, 4, 5]),
+            self._mass_stop(t_start=40.0, t_end=42.0, tracks=[7, 8, 9, 10]),
+        ]
+        merged = _merge_overlapping(firings)
+        self.assertEqual(2, len(merged))
+        merged.sort(key=lambda r: r["t_start_s"])
+        self.assertEqual([1, 2, 3, 4, 5], merged[0]["track_ids"])
+        self.assertEqual(2, merged[0]["metadata"]["merged_firings"])
+        self.assertEqual([7, 8, 9, 10], merged[1]["track_ids"])
+        self.assertNotIn("merged_firings", merged[1]["metadata"])
+
+    @staticmethod
+    def _mass_stop(*, t_start: float, t_end: float, tracks: list[int]) -> dict:
+        return {
+            "rule_id": "mass_stop",
+            "severity": "low",
+            "confidence": 0.5,
+            "t_start_s": t_start,
+            "t_end_s": t_end,
+            "frame_start": int(t_start * 15),
+            "frame_end": int(t_end * 15),
+            "track_ids": sorted(tracks),
+            "bbox_union": {"x": 0, "y": 0, "w": 100, "h": 100},
+            "metadata": {"track_count": len(tracks), "window_s": 2.0, "velocity_drops": {}},
+        }
 
 
 if __name__ == "__main__":

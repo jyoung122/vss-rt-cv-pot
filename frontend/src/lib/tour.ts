@@ -132,20 +132,20 @@ const STEPS: AimsTourStep[] = [
   },
   {
     page: 'detail',
-    element: '[data-tour="tab-events"]',
-    popover: {
-      title: 'Events tab',
-      description: 'Every detection event: object class, bounding box, confidence, and timestamp — grouped by track.',
-      side: 'left',
-    },
-  },
-  {
-    page: 'detail',
     element: '[data-tour="tab-scenarios"]',
     popover: {
       title: 'Scenarios tab',
       description:
         'Rule-detected incidents with VLM verdicts. Filter by Confirmed / Rejected / Pending. Expand any card for the model\'s reasoning and confidence.',
+      side: 'left',
+    },
+  },
+  {
+    page: 'detail',
+    element: '[data-tour="tab-events"]',
+    popover: {
+      title: 'Events tab',
+      description: 'Every detection event: object class, bounding box, confidence, and timestamp — grouped by track.',
       side: 'left',
     },
   },

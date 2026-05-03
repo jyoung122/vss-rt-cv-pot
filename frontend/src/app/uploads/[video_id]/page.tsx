@@ -705,12 +705,9 @@ export default function UploadDetailPage() {
           </div>
 
           {/* Tabs — must be outside the header div to use full column height */}
-          <Tabs defaultValue="events" className="flex min-h-0 flex-1 flex-col">
+          <Tabs defaultValue="scenarios" className="flex min-h-0 flex-1 flex-col">
             <div className="shrink-0 border-b px-4 pt-3">
               <TabsList variant="line" className="gap-3">
-                <TabsTrigger data-tour="tab-events" value="events" className="text-[12px]">
-                  Events
-                </TabsTrigger>
                 <TabsTrigger data-tour="tab-scenarios" value="scenarios" className="text-[12px]">
                   Scenarios
                   {incidents.length > 0 && (
@@ -719,20 +716,11 @@ export default function UploadDetailPage() {
                     </Badge>
                   )}
                 </TabsTrigger>
+                <TabsTrigger data-tour="tab-events" value="events" className="text-[12px]">
+                  Events
+                </TabsTrigger>
               </TabsList>
             </div>
-
-            {/* Events tab */}
-            <TabsContent value="events" className="flex min-h-0 flex-1 flex-col">
-              <EventsPanel
-                tracks={tracks}
-                selectedTrackIdx={selectedTrackIdx}
-                onSelect={(i) => {
-                  setSelectedTrackIdx(i)
-                  seekTo(tracks[i].first_t_seconds)
-                }}
-              />
-            </TabsContent>
 
             {/* Scenarios tab — live incident data */}
             <TabsContent value="scenarios" className="flex min-h-0 flex-1 flex-col">
@@ -754,6 +742,18 @@ export default function UploadDetailPage() {
                     setSelectedTrackIdx(idx)
                     seekTo(time)
                   }
+                }}
+              />
+            </TabsContent>
+
+            {/* Events tab */}
+            <TabsContent value="events" className="flex min-h-0 flex-1 flex-col">
+              <EventsPanel
+                tracks={tracks}
+                selectedTrackIdx={selectedTrackIdx}
+                onSelect={(i) => {
+                  setSelectedTrackIdx(i)
+                  seekTo(tracks[i].first_t_seconds)
                 }}
               />
             </TabsContent>
@@ -887,7 +887,7 @@ function EventsPanel({
         style={{ background: 'var(--surface-2)', color: 'var(--fg-4)' }}
       >
         <Shield className="size-3 shrink-0" strokeWidth={1.75} />
-        Analysis pipeline · POT DeepStream · per-frame raw detections
+        Analysis Pipeline - Raw event detections
       </div>
     </div>
   )
@@ -906,7 +906,7 @@ function ScenariosPanel({
   onSelectIncident: (inc: Incident) => void
   onSelectTrackAtTime: (trackId: number, time: number) => void
 }) {
-  const [filter, setFilter] = useState<VlmFilter>('all')
+  const [filter, setFilter] = useState<VlmFilter>('confirmed')
 
   const filtered = useMemo(() => {
     if (filter === 'confirmed') return incidents.filter(i => i.vlm_status === 'done' && i.vlm_verdict === 'confirmed')
@@ -944,8 +944,8 @@ function ScenariosPanel({
   }
 
   const filterOpts: { id: VlmFilter; label: string }[] = [
-    { id: 'all', label: `All (${incidents.length})` },
     { id: 'confirmed', label: `Confirmed (${incidents.filter(i => i.vlm_status === 'done' && i.vlm_verdict === 'confirmed').length})` },
+    { id: 'all', label: `All (${incidents.length})` },
     { id: 'rejected', label: `Rejected (${incidents.filter(i => i.vlm_status === 'done' && i.vlm_verdict === 'rejected').length})` },
     { id: 'pending', label: `Pending (${incidents.filter(i => i.vlm_status === 'pending').length})` },
   ]
@@ -993,7 +993,7 @@ function ScenariosPanel({
         style={{ background: 'var(--surface-2)', color: 'var(--fg-4)' }}
       >
         <Shield className="size-3 shrink-0" strokeWidth={1.75} />
-        Rule-based detection · Cosmos-Reason2-2B validation
+        Rule-based detection &amp; Vision Language Model validation
       </div>
     </div>
   )

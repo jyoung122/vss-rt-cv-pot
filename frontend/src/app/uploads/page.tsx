@@ -42,6 +42,10 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { resumeTourIfNeeded } from '@/lib/tour'
+import {
+  useUploadProgress,
+  type UploadStage,
+} from '@/lib/use-upload-progress'
 
 const ACCEPT = '.mp4,.mkv'
 
@@ -53,8 +57,16 @@ const SUGGESTIONS = [
   'Signal issues',
 ]
 
-const STAGES = ['Upload', 'Ingest', 'CV analysis', 'Index events'] as const
-const STAGE_LABELS = ['UPLOAD', 'INGEST', 'CV ANALYSIS', 'INDEX'] as const
+// 5-stage strip — display label and matching slug
+const PIPELINE_STAGES: { label: string; slug: UploadStage }[] = [
+  { label: 'Uploading',       slug: 'upload'  },
+  { label: 'Ingesting',       slug: 'ingest'  },
+  { label: 'Detecting rules', slug: 'rules'   },
+  { label: 'Validating',      slug: 'vlm'     },
+  { label: 'Done',            slug: 'done'    },
+]
+
+const STAGE_ORDER: UploadStage[] = ['upload', 'ingest', 'rules', 'vlm', 'done']
 
 export default function UploadsPage() {
   return (
@@ -77,9 +89,7 @@ function UploadsContent() {
   // Active upload state
   const [activeName, setActiveName] = useState<string | null>(null)
   const [activeSize, setActiveSize] = useState<number>(0)
-  const [uploadPct, setUploadPct] = useState(0)
-  const [stage, setStage] = useState(0) // 0 upload, 1 ingest, 2 analyze, 3 done
-  const stageTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const progress = useUploadProgress()
 
   // Preview / delete dialogs
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -109,36 +119,25 @@ function UploadsContent() {
     resumeTourIfNeeded('uploads', router.push)
   }, [router])
 
-  // After upload completes, advance simulated post-upload stages
+  // When stage reaches done, refresh the list and reset after 1.5 s
   useEffect(() => {
-    if (stage <= 0 || stage >= 3) return
-    stageTimer.current = setTimeout(() => setStage((s) => s + 1), 1400)
-    return () => {
-      if (stageTimer.current) clearTimeout(stageTimer.current)
-    }
-  }, [stage])
-
-  // When stage hits 3 (done), refresh the list and clear active
-  useEffect(() => {
-    if (stage !== 3) return
+    if (progress.stage !== 'done') return
     void (async () => {
       await refresh()
       setTimeout(() => {
         setActiveName(null)
         setActiveSize(0)
-        setUploadPct(0)
-        setStage(0)
-      }, 1200)
+        progress.reset()
+      }, 1500)
     })()
-  }, [stage, refresh])
+  }, [progress.stage]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleUpload = useCallback(
     async (file: File) => {
       setError(null)
       setActiveName(file.name)
       setActiveSize(file.size)
-      setUploadPct(0)
-      setStage(0)
+      progress.startUpload()
 
       try {
         await new Promise<void>((resolve, reject) => {
@@ -146,13 +145,20 @@ function UploadsContent() {
           xhr.open('POST', '/api/upload')
           xhr.upload.onprogress = (e) => {
             if (e.lengthComputable) {
-              setUploadPct(Math.round((e.loaded / e.total) * 100))
+              progress.setUploadPercent(Math.round((e.loaded / e.total) * 100))
             }
           }
           xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) {
-              setUploadPct(100)
-              setStage(1)
+              progress.setUploadPercent(100)
+              try {
+                const body = JSON.parse(xhr.responseText) as { video_id?: string; duration_s?: number }
+                const vid = body.video_id ?? ''
+                const dur = body.duration_s ?? null
+                progress.uploadDone(vid, dur)
+              } catch {
+                progress.uploadDone('', null)
+              }
               resolve()
             } else {
               reject(new Error(`Upload failed: HTTP ${xhr.status}`))
@@ -166,15 +172,16 @@ function UploadsContent() {
           xhr.send(fd)
         })
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Upload failed')
+        const msg = err instanceof Error ? err.message : 'Upload failed'
+        setError(msg)
+        progress.uploadError(msg)
         setActiveName(null)
-        setUploadPct(0)
-        setStage(0)
+        setActiveSize(0)
       } finally {
         if (inputRef.current) inputRef.current.value = ''
       }
     },
-    [query],
+    [query, progress],
   )
 
   const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -215,11 +222,6 @@ function UploadsContent() {
 
   // Total tracks across all uploads for the stats header
   const totalTracks = items.reduce((sum, u) => sum + (u.track_count ?? 0), 0)
-
-  const stageDoneOrActive = (i: number) => {
-    if (i === 0) return { done: uploadPct >= 100, active: stage === 0 }
-    return { done: i < stage, active: i === stage && stage < 3 }
-  }
 
   return (
     <div className="flex h-full flex-col">
@@ -387,7 +389,7 @@ function UploadsContent() {
                 background: 'var(--surface-1)',
               }}
             >
-              {stage < 3 && (
+              {progress.stage !== 'done' && progress.stage !== 'error' && (
                 <div className="ov-sweep pointer-events-none absolute inset-0" />
               )}
               <div className="relative flex items-center gap-3.5">
@@ -405,50 +407,19 @@ function UploadsContent() {
                     <div className="font-mono text-[13px] font-medium text-foreground truncate">
                       {activeName}
                     </div>
-                    <StageBadge stage={stage} />
+                    <StageBadge stage={progress.stage} error={progress.error} />
                   </div>
                   <div className="mb-2.5 truncate text-xs text-muted-foreground">
                     {formatBytes(activeSize)} · query: &quot;
                     {query.length > 80 ? query.slice(0, 80) + '…' : query}
                     &quot;
                   </div>
-                  <div className="flex gap-1">
-                    {STAGES.map((label, i) => {
-                      const { done, active } = stageDoneOrActive(i)
-                      const width = done
-                        ? '100%'
-                        : active && i === 0
-                          ? `${uploadPct}%`
-                          : active
-                            ? '60%'
-                            : '0%'
-                      return (
-                        <div
-                          key={label}
-                          className="relative h-1.5 flex-1 overflow-hidden rounded-[1px]"
-                          style={{ background: 'var(--surface-3)' }}
-                        >
-                          <div
-                            className="h-full transition-[width] duration-300"
-                            style={{
-                              width,
-                              background: done
-                                ? 'var(--ok-500)'
-                                : 'var(--accent-500)',
-                            }}
-                          />
-                        </div>
-                      )
-                    })}
-                  </div>
-                  <div
-                    className="mt-1.5 flex justify-between font-mono text-[10px] tracking-[0.04em]"
-                    style={{ color: 'var(--fg-4)' }}
-                  >
-                    {STAGE_LABELS.map((s) => (
-                      <span key={s}>{s}</span>
-                    ))}
-                  </div>
+                  <PipelineStrip
+                    stage={progress.stage}
+                    percent={progress.percent}
+                    sub={progress.sub}
+                    error={progress.error}
+                  />
                 </div>
               </div>
             </Card>
@@ -737,28 +708,154 @@ function Stat({
   )
 }
 
-function StageBadge({ stage }: { stage: number }) {
-  const label =
-    stage === 0
-      ? 'Uploading'
-      : stage === 1
-        ? 'Ingesting'
-        : stage === 2
-          ? 'Analyzing'
-          : 'Complete'
-  const Icon = stage === 3 ? Check : Sparkles
+function StageBadge({ stage, error }: { stage: UploadStage; error: string | null }) {
+  if (stage === 'error') {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge
+            variant="outline"
+            className="gap-1 text-[11px] border-[color:var(--danger-500)]/40 bg-[color:var(--danger-500)]/10 text-[color:var(--danger-500)]"
+          >
+            <X className="size-3" strokeWidth={2} />
+            Error
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent>{error ?? 'Unknown error'}</TooltipContent>
+      </Tooltip>
+    )
+  }
+  const isDone = stage === 'done'
+  const labelMap: Record<UploadStage, string> = {
+    idle: 'Idle',
+    upload: 'Uploading',
+    ingest: 'Ingesting',
+    rules: 'Detecting rules',
+    vlm: 'Validating',
+    done: 'Complete',
+    error: 'Error',
+  }
+  const Icon = isDone ? Check : Sparkles
   return (
     <Badge
       variant="outline"
       className={cn(
         'gap-1 text-[11px]',
-        stage === 3
+        isDone
           ? 'border-[color:var(--ok-500)]/40 bg-[color:var(--ok-500)]/10 text-[color:var(--ok-300)]'
           : 'border-[color:var(--accent-500)]/40 bg-[color:var(--accent-500)]/10 text-[color:var(--accent-400)]',
       )}
     >
       <Icon className="size-3" strokeWidth={2} />
-      {label}
+      {labelMap[stage]}
     </Badge>
+  )
+}
+
+// ── 5-stage pipeline strip ──────────────────────────────────────────────────
+function PipelineStrip({
+  stage,
+  percent,
+  sub,
+  error,
+}: {
+  stage: UploadStage
+  percent: number
+  sub: string | null
+  error: string | null
+}) {
+  const activeIdx = STAGE_ORDER.indexOf(stage)
+  const isError = stage === 'error'
+
+  // When stage=error, activeIdx=-1; we track which pill was last active via
+  // a separate concept: the error occurs at whichever pill was last active.
+  // We surface the error tooltip on the first pill in the error case.
+  const errorPillSlug = isError ? (PIPELINE_STAGES[0]?.slug ?? 'upload') : null
+
+  return (
+    <div>
+      {/* Progress bars */}
+      <div className="flex gap-1">
+        {PIPELINE_STAGES.map(({ slug }, i) => {
+          const done = !isError && activeIdx > i
+          const active = !isError && activeIdx === i
+          const isUploadSlot = slug === 'upload'
+
+          const width = done
+            ? '100%'
+            : active && isUploadSlot
+              ? `${percent}%`
+              : active
+                ? '60%'
+                : '0%'
+
+          return (
+            <div
+              key={slug}
+              className="relative h-1.5 flex-1 overflow-hidden rounded-[1px]"
+              style={{ background: 'var(--surface-3)' }}
+            >
+              <div
+                className="h-full transition-[width] duration-300"
+                style={{
+                  width,
+                  background: done ? 'var(--ok-500)' : 'var(--accent-500)',
+                }}
+              />
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Labels row */}
+      <div
+        className="mt-1.5 flex justify-between font-mono text-[10px] tracking-[0.04em]"
+        style={{ color: 'var(--fg-4)' }}
+      >
+        {PIPELINE_STAGES.map(({ label, slug }, i) => {
+          const active = !isError && activeIdx === i
+          // VLM is greyed with "—" only when stage=done and we went idle→upload→ingest→rules→done
+          // (skipped vlm). Since STAGE_ORDER has vlm at index 3 and done at 4, activeIdx===4
+          // and we check i===3. But by the time stage=done, activeIdx===4 > 3, so vlm bar
+          // shows done (green) which is fine. No need for a special skip variant in the bars.
+          // For the label, we show "—" if this was the vlm pill and we had no vlm stage.
+          // We can't easily detect "was vlm entered?" post-hoc with only stage, so we always
+          // show the label. The plan's "grey pill with —" is for the ACTIVE state when
+          // vlm_enabled=false — that's handled in the hook (it never enters vlm stage).
+          const showErrorHere = isError && slug === errorPillSlug
+
+          return (
+            <div key={slug} className="flex flex-col items-start">
+              <span
+                style={active ? { color: 'var(--accent-400)' } : {}}
+              >
+                {label.toUpperCase()}
+              </span>
+              {active && sub && (
+                <span
+                  className="mt-0.5 text-[9px] normal-case tracking-normal"
+                  style={{ color: 'var(--fg-4)', opacity: 0.6 }}
+                >
+                  {sub}
+                </span>
+              )}
+              {showErrorHere && error && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      className="mt-0.5 text-[9px] normal-case tracking-normal cursor-help"
+                      style={{ color: 'var(--danger-500)', opacity: 0.8 }}
+                    >
+                      error
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>{error}</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }

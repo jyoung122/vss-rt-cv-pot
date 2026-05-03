@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 DEFAULT_THRESHOLDS: dict[str, dict[str, Any]] = {
     "vehicle_collision": {
         "iou_min": 0.3,
-        "iou_frames_min": 3,
+        "iou_frames_min": 2,
         "costop_window_s": 1.0,
         "stationary_after_s": 3.0,
         "velocity_drop_min": 5.0,
@@ -88,7 +88,7 @@ _STATIONARY_VX_PX_S = 5.0
 class ThresholdConfig:
     # vehicle_collision
     collision_iou_min: float = 0.3
-    collision_iou_frames_min: int = 3
+    collision_iou_frames_min: int = 2
     collision_costop_window_s: float = 1.0
     collision_stationary_after_s: float = 3.0
     collision_velocity_drop_min: float = 5.0
@@ -362,7 +362,10 @@ def _rule_vehicle_collision(
 
     a_stop, a_drop = _has_costop(ts_a, t_overlap_start)
     b_stop, b_drop = _has_costop(ts_b, t_overlap_start)
-    if not (a_stop and b_stop):
+    # OR, not AND: stopped/slow car getting rear-ended has near-zero "drop" on
+    # that side. Either side showing a real velocity collapse is enough; VLM
+    # filters the false positives this admits.
+    if not (a_stop or b_stop):
         return None
 
     def _stationary_after(ts: TrackSignals, t_ref: float) -> float:
@@ -375,7 +378,9 @@ def _rule_vehicle_collision(
 
     stat_a = _stationary_after(ts_a, t_overlap_end)
     stat_b = _stationary_after(ts_b, t_overlap_end)
-    if stat_a + stat_b < cfg.collision_stationary_after_s:
+    # max, not sum: hit-and-run leaves only the struck car with a stationary
+    # tail. Sum penalises that even when the survivor is clearly stopped.
+    if max(stat_a, stat_b) < cfg.collision_stationary_after_s:
         return None
 
     iou_peak = max(_iou(t_a[t], t_b[t]) for t in anchor_seq)
@@ -592,7 +597,51 @@ def _rule_mass_stop(
             },
         })
 
-    return results
+    # Sliding-window anchors that produce different track sets aren't caught
+    # by the (bucket, frozenset) dedup above. Sweep-merge overlapping intervals
+    # and keep only the densest firing per cluster — same physical brake wave,
+    # one Scenarios card.
+    return _merge_overlapping(results)
+
+
+def _merge_overlapping(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse overlapping mass_stop firings to the densest per cluster.
+
+    Densest = most tracks; ties broken by longest span, then earliest start.
+    """
+    if len(results) < 2:
+        return results
+
+    results = sorted(results, key=lambda r: (r["t_start_s"], r["t_end_s"]))
+    clusters: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    cluster_end = -math.inf
+    for r in results:
+        if not current or r["t_start_s"] > cluster_end:
+            if current:
+                clusters.append(current)
+            current = [r]
+            cluster_end = r["t_end_s"]
+        else:
+            current.append(r)
+            cluster_end = max(cluster_end, r["t_end_s"])
+    if current:
+        clusters.append(current)
+
+    merged: list[dict[str, Any]] = []
+    for cluster in clusters:
+        densest = max(
+            cluster,
+            key=lambda r: (
+                len(r["track_ids"]),
+                r["t_end_s"] - r["t_start_s"],
+                -r["t_start_s"],
+            ),
+        )
+        if len(cluster) > 1:
+            densest = {**densest, "metadata": {**densest["metadata"], "merged_firings": len(cluster)}}
+        merged.append(densest)
+    return merged
 
 
 # ---------------------------------------------------------------------------

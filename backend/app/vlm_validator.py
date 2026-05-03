@@ -27,8 +27,16 @@ DATA_DIR = os.getenv("DATA_DIR", "/data")
 
 _PROMPTS: dict[str, str] = {
     "vehicle_collision": (
-        "You are analyzing a traffic camera clip for a suspected vehicle collision. "
-        "Look carefully at the vehicles. Does a collision or significant impact occur? "
+        "You are analyzing a traffic camera clip for evidence of a vehicle collision. "
+        "Confirm if you see ANY of: vehicles in contact or overlapping; visibly damaged "
+        "or crumpled bodywork; debris on the road around a vehicle (broken glass, "
+        "plastic, bumper or panel pieces, scattered cargo); fluid pools or smoke near a "
+        "vehicle; a vehicle stopped at an unusual angle, against another vehicle, off "
+        "the lane, or in the middle of an intersection with debris around it; two or "
+        "more vehicles that came to a sudden simultaneous stop after contact. The "
+        "moment of impact may NOT be in the clip — aftermath evidence alone is "
+        "sufficient to confirm. Reject only if the scene shows normal traffic with no "
+        "damage, debris, or unusual stopping. "
         'Respond ONLY with JSON: {"verdict": "confirmed"|"rejected"|"uncertain", '
         '"confidence": 0.0-1.0, "reasoning": "one concise sentence"}'
     ),
