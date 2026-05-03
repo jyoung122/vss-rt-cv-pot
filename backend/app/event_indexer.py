@@ -193,6 +193,11 @@ async def run_indexer(redis_url: str) -> None:
                                 )
 
                                 if rows:
+                                    # ON CONFLICT collapses duplicates from
+                                    # DeepStream loop replays (-r 2). Without
+                                    # this, every loop iteration appends a
+                                    # fresh row per (frame_id, track_id),
+                                    # corrupting per-track signals.
                                     await pool.executemany(
                                         """
                                         INSERT INTO events
@@ -200,6 +205,7 @@ async def run_indexer(redis_url: str) -> None:
                                              class, confidence,
                                              bbox_x1, bbox_y1, bbox_x2, bbox_y2)
                                         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                                        ON CONFLICT (video_id, frame_id, track_id) DO NOTHING
                                         """,
                                         rows,
                                     )

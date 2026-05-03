@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS events_video_frame_idx ON events(video_id, frame_id);
 CREATE INDEX IF NOT EXISTS events_video_track_idx ON events(video_id, track_id);
+-- Dedup detections from DeepStream loop replays. Indexer pairs this with
+-- ON CONFLICT DO NOTHING so each (frame_id, track_id) is recorded once.
+CREATE UNIQUE INDEX IF NOT EXISTS events_dedup ON events(video_id, frame_id, track_id);
 
 CREATE TABLE IF NOT EXISTS incidents (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
