@@ -177,6 +177,10 @@ First-run guided walkthrough so a stakeholder can self-serve the demo: Dashboard
 - ✅ Backend `app/incidents.py` + `app/seed.py` + `entrypoint.sh` + `seed-videos/` — seed flow for demo data. Commit `ddd42dd`.
 - ✅ Per-service docs scaffolded under `docs/v1/services/**` (frontend, backend, deepstream, cosmos, postgres, redis, nvstreamer, sdr, observability) and architecture overview at `docs/v1/architecture.md`.
 
+### High-priority architectural debt
+
+- 🚨 **Replace docker-socket container-restart with multi-source DeepStream pipeline.** Today `POST /api/upload` writes a single `current_video_id` Redis key, rewrites `current_stream_url.txt`, and POSTs to `/var/run/docker.sock` to restart `vss-rt-cv`. This pattern is single-tenant by design — concurrent uploads race on the global key/file and the last writer wins (the first uploads land on disk but never get perceived). It also costs ~20–30 s per upload (TRT engine reload + GStreamer pipeline init) and exposes the host's docker socket inside the backend container (root-equivalent). **Proper fix:** tag `mdx-raw` events with `video_id` at the source (`nvmsgconv` schema change), drop the `current_video_id` global, run a long-lived DeepStream pipeline with sources added/removed at runtime via `nvstreammux` + a small control endpoint inside the perception container. Unblocks: real concurrency, sub-second source switching, removal of docker-socket privilege. Estimated cost: 2–3 days. Workaround in place: serial job queue (see Phase 11 below) — gives correct multi-user behavior without the architectural change but keeps the per-upload restart cost.
+
 ### Deferred (not blocking v1 demo)
 - ⏸ `/settings` page real content
 - ⏸ Per-clip thumbnails (`ffprobe -ss` frame extraction)
