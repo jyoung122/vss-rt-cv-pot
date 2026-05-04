@@ -1,6 +1,14 @@
-# Upload progress — 5-stage real-signal pipeline
+# Upload progress — real-signal pipeline strip
 
-Replace the fake 4-stage timer in [`frontend/src/app/uploads/page.tsx`](../../frontend/src/app/uploads/page.tsx) with a 5-stage state machine driven by real backend signals: `upload → ingest → rules → vlm → done`. Auto-trigger `/analyze` so VLM fires for new uploads without manual curl.
+This was the original design doc for the 5-stage progress strip. Now shipped, plus a conditional 6th leading "Queued" stage that landed alongside the upload job queue (commit `3d1614d`). Live behaviour:
+
+```
+[Queued →] Uploading → Ingesting → Detecting rules → Validating → Done
+```
+
+The `Queued` pill only appears when the backend's enqueue response returns `queue_status="queued"` — i.e. another upload is already owning the DeepStream container. The hook polls `/progress` every 2 s while queued (vs 1 s for ingest), shows `"N ahead — waiting for DeepStream"` sub-text, and advances out of the queued state when `queue_status` flips to `"active"`. A 503 from `POST /api/upload` (queue full) renders the existing red error pill with `"Demo queue is full — try again in a moment."`
+
+The rest of this doc describes the original 5-stage design as shipped. Replaces the fake 4-stage timer in [`frontend/src/app/uploads/page.tsx`](../../frontend/src/app/uploads/page.tsx) with a state machine driven by real backend signals. Auto-triggers `/analyze` so VLM fires for new uploads without manual curl.
 
 Current state: post-upload stages advance every 1400 ms with `setTimeout`. None of the stages reflect actual backend progress, and `/analyze` is never called automatically — VLM only runs for uploads where someone manually `curl`s the analyze endpoint.
 
@@ -48,7 +56,7 @@ One new aggregate endpoint at [`backend/app/uploads_list.py`](../../backend/app/
 
 Single SQL with two LEFT JOINs (events for count, incidents for vlm split). One env read for `VLM_ENABLED`. ~30 LOC + tests.
 
-**Response shape (locked contract):**
+**Response shape (locked contract — extended for queue):**
 
 ```json
 {
@@ -60,9 +68,13 @@ Single SQL with two LEFT JOINs (events for count, incidents for vlm split). One 
   "vlm_done": 7,
   "vlm_skipped": 0,
   "vlm_error": 0,
-  "vlm_enabled": true
+  "vlm_enabled": true,
+  "queue_status": "done",
+  "queue_position": null
 }
 ```
+
+`queue_status` is one of `"queued" | "active" | "done" | null` (`null` for legacy rows that pre-date the queue). `queue_position` is 0-indexed (0 = next up) while queued; `null` otherwise.
 
 `vlm_*` fields are counts of `incidents.vlm_status` values. `vlm_enabled` reflects the runtime env var read from `os.environ.get("VLM_ENABLED")`.
 

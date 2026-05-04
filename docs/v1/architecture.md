@@ -21,10 +21,12 @@ Browser
 │                    Backend                             │
 │               (vss-backend)  port 8080                 │
 │                                                        │
-│  upload.py ─── ffprobe metadata                        │
+│  upload.py ─── ffprobe metadata, enqueue              │
+│  upload_queue.py ─── serial worker, owns DS restart   │
 │  event_indexer.py ◄─── mdx-raw (Redis XREADGROUP)     │
 │  incident_worker.py ─── rule pack (4 rules)            │
-│  vlm_validator.py ──── Cosmos API + ffmpeg clip        │
+│  vlm_validator.py ──── ffmpeg clip + provider.validate│
+│  vlm_providers/ ─── cosmos.py | openai_provider.py    │
 │  incidents.py, uploads_list.py ─── REST responses      │
 │  events.py ─── WebSocket broadcaster                  │
 └──────┬────────────┬─────────────────┬─────────────────┘
@@ -47,19 +49,27 @@ Browser
                               │  url.txt          │
                               └───────────────────┘
 
-                              ┌──────────────────┐
-                              │  Cosmos NIM       │
-                              │  (aims-cosmos)    │
-                              │  port 8000        │
-                              │                   │
-                              │ Cosmos-Reason2-2B │
-                              │ ~15 GB weights    │
-                              │ OpenAI-compat API │
-                              └──────────────────┘
+                              ┌──────────────────────────────────┐
+                              │  VLM provider (env-selectable)    │
+                              │                                   │
+                              │  VLM_PROVIDER=cosmos              │
+                              │    └─→ Cosmos NIM (aims-cosmos)   │
+                              │        profiles: [gpu]            │
+                              │        Cosmos-Reason2-2b/8b       │
+                              │        POST /v1/chat/completions  │
+                              │        (base64 video clip)        │
+                              │                                   │
+                              │  VLM_PROVIDER=openai              │
+                              │    └─→ OpenAI API or any          │
+                              │        OAI-compatible endpoint    │
+                              │        (vLLM, Ollama, etc.)       │
+                              │        gpt-5.4-mini default       │
+                              │        ffmpeg → 1 fps JPEG frames │
+                              │        as image_url content parts │
+                              └──────────────────────────────────┘
                                   ▲
-                                  │ POST /v1/chat/completions
-                                  │ (base64 video clip)
-                              vlm_validator.py
+                                  │ provider.validate(clip, rule_id)
+                              vlm_validator.py + vlm_providers/
 
                               ┌──────────────────┐
                               │  Observability    │

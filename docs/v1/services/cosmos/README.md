@@ -1,13 +1,24 @@
-# Cosmos (VLM validator)
+# Cosmos (VLM validator — local NIM)
 
-Self-hosted NVIDIA Cosmos-Reason2-2B NIM container. Given a rule-detected incident, `vlm_validator.py` in the backend extracts a short video clip via ffmpeg and sends it to this service for a second-pass verdict. The VLM either confirms, rejects, or marks the incident as uncertain, and provides a natural-language explanation. This is the Phase 8 component; the pipeline runs without it when `VLM_ENABLED=false`.
+Self-hosted NVIDIA Cosmos-Reason2 NIM container. One of two VLM provider options behind the `VLM_PROVIDER` env (the other is `openai`). When `VLM_PROVIDER=cosmos`, `vlm_validator.py` extracts a short video clip via ffmpeg and POSTs it base64-encoded to this container's OpenAI-compatible chat completions API. The VLM either confirms, rejects, or marks the incident as uncertain, and provides a natural-language explanation. The pipeline runs without it when `VLM_ENABLED=false` (or when `VLM_PROVIDER=openai`).
+
+**Compose profile.** This service is gated behind `profiles: [gpu]`. Plain `docker compose up` does NOT bring it up — that lets `VLM_PROVIDER=openai` deployments skip the 30 GB NIM image entirely. Bring it up explicitly:
+
+```bash
+docker compose --profile gpu up -d
+```
+
+For split-deploy topologies (app on Vercel/Render + Neon, GPU on a separate box), point the backend at the remote Cosmos host via `COSMOS_URL=https://gpu-host.example/...` — there is no compose-internal coupling between the `backend` and `cosmos` services.
+
+**Model swap.** The model id is env-driven via `COSMOS_MODEL` (default `nvidia/cosmos-reason2-2b`). Switching to the 8B model is a config-only change: `COSMOS_MODEL=nvidia/cosmos-reason2-8b` and update the `image:` field accordingly. No backend code changes.
 
 ## Container / process
 
-- **Image:** `nvcr.io/nim/nvidia/cosmos-reason2-2b:latest`
+- **Image:** `nvcr.io/nim/nvidia/cosmos-reason2-2b:latest` (or 8b)
 - **Compose service name:** `cosmos`
 - **Container name:** `aims-cosmos`
 - **Network:** `vss-net`
+- **Profile:** `gpu` — must be explicitly enabled
 - **Dependencies:** none (backend connects to it asynchronously after startup)
 - **Ports:** `8000:8000` (host:container)
 - **Volumes:**
@@ -24,7 +35,9 @@ Self-hosted NVIDIA Cosmos-Reason2-2B NIM container. Given a rule-detected incide
 | `NGC_API_KEY` | `${NGC_CLI_API_KEY}` | NGC auth for image pull |
 | `NIM_CACHE_PATH` | `/opt/nim/.cache` | Weight cache directory (must match the `aims-cosmos-cache` volume mount) |
 | `VLM_ENABLED` | `false` | Set in the **backend** env, not here. Controls whether `vlm_validator.py` fires. |
-| `COSMOS_URL` | `http://cosmos:8000` | Set in the **backend** env; base URL the backend uses to reach this container. |
+| `VLM_PROVIDER` | `cosmos` | Set in the **backend** env. Selects this provider over the OpenAI alternative. |
+| `COSMOS_URL` | `http://cosmos:8000` | Set in the **backend** env; can point at a remote GPU host for split deploys. |
+| `COSMOS_MODEL` | `nvidia/cosmos-reason2-2b` | Set in the **backend** env. Written to the `vlm_model` column for each verdict. |
 
 Pull the image before first `docker compose up`:
 

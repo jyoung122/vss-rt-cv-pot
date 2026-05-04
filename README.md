@@ -53,7 +53,19 @@ chmod +x deepstream/init/ds-start.sh
 NGC_CLI_API_KEY=<your-api-key>
 HOST_IP=$(ip route get 1.1.1.1 | awk '{print $7; exit}')
 DATA_DIR=./data
+
+# VLM provider — pick one:
+#   cosmos  → local NIM container (GPU required, no per-call cost)  [default]
+#   openai  → OpenAI API or any OAI-compatible endpoint
+VLM_PROVIDER=cosmos
+VLM_ENABLED=false       # set true to actually run validation
+# OPENAI_API_KEY=...    # required when VLM_PROVIDER=openai
+# OPENAI_MODEL=gpt-5.4-mini
 ```
+
+The `cosmos` service is gated behind `profiles: [gpu]` — plain `docker compose up` skips
+the 30 GB NIM image. Bring it up with `docker compose --profile gpu up -d` for the
+self-hosted VLM path; omit the profile if you're using `VLM_PROVIDER=openai`.
 
 Get sample videos:
 
@@ -106,7 +118,7 @@ Open `http://<HOST_IP>:3000`.
 - HTML5 `<video>` + a custom scrubber overlay that draws per-track detection bands keyed by class colour, plus an incident band layer (severity-coloured, click-to-seek, tooltip with rule label)
 - "Detected events" panel on the right with two tabs:
   - **Events** — flat list of tracks with class, max confidence, duration, first bbox; click to seek
-  - **Scenarios** — rule-detected incidents (`vehicle_collision`, `ped_impact`, `stationary_vehicle`, `mass_stop`) with severity, confidence, time range, involved track chips, and a "Jump to" button. Phase 8 layers Cosmos-Reason 2 VLM verdicts onto the same cards.
+  - **Scenarios** — rule-detected incidents (`vehicle_collision`, `ped_impact`, `stationary_vehicle`, `mass_stop`) with severity, confidence, time range, involved track chips, and a "Jump to" button. VLM verdicts (Cosmos NIM or OpenAI, selected via `VLM_PROVIDER`) layer onto the same cards.
 
 **Theme toggle** — Sun/Moon button top-right of the header. Persisted to `localStorage` as `aims-theme`. Pre-hydration script sets the class on `<html>` before paint, so no FOUC.
 
@@ -117,7 +129,7 @@ docker compose exec redis redis-cli XLEN mdx-raw
 docker compose exec redis redis-cli XREAD COUNT 5 STREAMS mdx-raw 0
 ```
 
-Redis Commander (stream UI): `http://<HOST_IP>:8081` (will be dropped from the prod compose in Phase 3).
+Redis Commander (stream UI): available in dev compose only — dropped from prod in Phase 3.
 
 ### Support/dev log UI
 

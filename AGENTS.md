@@ -15,16 +15,23 @@ backend/            FastAPI + asyncpg + redis. Lifespan starts the event indexer
   app/main.py       routes + lifespan + RequestIdMiddleware
   app/db.py         asyncpg pool, runs schema.sql at startup
   app/schema.sql    uploads + events + incidents tables (raw SQL, no ORM)
-  app/upload.py     ffprobe metadata, INSERT uploads, sets current_video_id
-  app/uploads_list.py   GET/DELETE /api/uploads, GET /api/uploads/:id/events
+  app/upload.py     ffprobe metadata, INSERT uploads, enqueues via upload_queue
+  app/upload_queue.py   in-process job queue + serial worker. Owns current_video_id,
+                        current_stream_url.txt, and the vss-rt-cv container restart.
+                        Caps depth at UPLOAD_QUEUE_MAX_DEPTH (default 10) → 503.
+  app/uploads_list.py   GET/DELETE /api/uploads, GET /api/uploads/:id/events,
+                        GET /api/uploads/:id/progress (queue + ingest + VLM aggregate)
   app/event_indexer.py  XREADGROUP("indexer/indexer-1") → Postgres events
   app/incidents.py      GET /api/uploads/:id/incidents, POST /api/uploads/:id/analyze
                         GET /api/incidents/catalog
   app/incident_worker.py rule pack: vehicle_collision · ped_impact ·
                           stationary_vehicle · mass_stop. ON CONFLICT upsert so
                           vlm_* columns survive re-analyze.
-  app/vlm_validator.py  Cosmos-Reason2-2B clip extraction + verdict write-back.
+  app/vlm_validator.py  Clip extraction (ffmpeg) + provider.validate() + write-back.
                         Spawned by analyze endpoint. VLM_ENABLED=false → skipped.
+  app/vlm_providers/    Swappable VLM provider package — selector reads VLM_PROVIDER,
+                        cosmos.py / openai_provider.py are isolated (no cross-imports).
+                        Shared prompts.py + parsing.py.
   app/logging_config.py LOG_LEVEL + LOG_FORMAT=text|json. OTel-envelope JSON Lines.
                         contextvars request_id / run_id / video_id propagation.
   app/playback.py   GET /api/uploads/:id/playback (FileResponse from disk)

@@ -109,22 +109,36 @@ mkdir -p data/videos && chmod 777 data/videos
 
 ## 5. Bring the stack up
 
-**With VLM (Phase 8):**
+Three modes, selected via the `VLM_PROVIDER` env var in `.env`:
+
+**Mode A — Local Cosmos (self-hosted GPU VLM, Phase 8 default):**
 
 ```bash
-docker compose up -d --build
+# .env: VLM_PROVIDER=cosmos, VLM_ENABLED=true
+docker compose --profile gpu up -d --build
 docker compose ps
 ```
 
-Expected services: `aims-postgres`, `vss-redis`, `vss-nvstreamer`, `vss-sdr`, `vss-rt-cv`, `vss-backend`, `vss-frontend`, `aims-cosmos`.
+Expected services: `aims-postgres`, `vss-redis`, `vss-nvstreamer`, `vss-sdr`, `vss-rt-cv`, `vss-backend`, `vss-frontend`, `aims-cosmos`. The `--profile gpu` flag is required as of 2026-05-04 — the cosmos service is gated behind `profiles: [gpu]` so plain `docker compose up` skips it.
 
-**Without VLM** — skip the ~15 GB Cosmos image pull entirely by listing the non-cosmos services explicitly:
+**Mode B — OpenAI VLM (T4-class boxes, no GPU for VLM):**
 
 ```bash
-docker compose up -d --build redis postgres nvstreamer sdr vss-rt-cv backend frontend
+# .env: VLM_PROVIDER=openai, VLM_ENABLED=true,
+#       OPENAI_API_KEY=sk-..., OPENAI_MODEL=gpt-5.4-mini
+docker compose up -d --build
 ```
 
-Set `VLM_ENABLED=false` in `.env` so the backend skips analyze calls and marks VLM verdicts `skipped`. (`--scale cosmos=0` does *not* avoid the image pull — it just won't start the container.)
+Plain `docker compose up` (no profile) skips the 30 GB Cosmos NIM image entirely. Backend extracts JPEG frames from each clip via ffmpeg and sends them to OpenAI's chat completions API. Per-call cost; no local GPU footprint for VLM.
+
+**Mode C — No VLM:**
+
+```bash
+# .env: VLM_ENABLED=false
+docker compose up -d --build
+```
+
+Backend marks all VLM verdicts `skipped`. Rule pack still runs.
 
 ---
 
