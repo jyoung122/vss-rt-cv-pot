@@ -31,7 +31,7 @@ Read [`../AGENTS.md`](../AGENTS.md) first — it has the repo map, vocabulary lo
 
 Then check [`/plan.md`](/plan.md) for the burn list and locked decisions. The "Services" table near the top links directly to each service doc.
 
-For what is actually running on `main` right now: [`../CURRENT_STATE.md`](../CURRENT_STATE.md).
+For what is actually running on `main` right now: [`../state/snapshot.md`](../state/snapshot.md) (or [`../../CURRENT_STATE.md`](../../CURRENT_STATE.md) for the index + per-session log).
 
 ---
 
@@ -43,7 +43,8 @@ For what is actually running on `main` right now: [`../CURRENT_STATE.md`](../CUR
 | [`../README.md`](../README.md) | User-facing setup and run flow |
 | [`architecture.md`](./architecture.md) | System architecture, data flows, service inventory, schema |
 | [`/plan.md`](/plan.md) | Roadmap, phases, burn list, locked decisions |
-| [`../CURRENT_STATE.md`](../CURRENT_STATE.md) | Snapshot of what is running on `main` |
+| [`../state/snapshot.md`](../state/snapshot.md) | Always-current snapshot of what is running on `main` |
+| [`../../CURRENT_STATE.md`](../../CURRENT_STATE.md) | State index + per-session log table |
 | [`../FUTURE_STATE_POT_ARCHIVED.md`](../FUTURE_STATE_POT_ARCHIVED.md) | DeepStream config reference from the POT era (archived, still accurate) |
 
 ---

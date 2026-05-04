@@ -122,7 +122,7 @@ curl -X POST http://localhost:8080/api/uploads/synth-collision/analyze
 
 - Roadmap + burn list: [`docs/V1_PLAN.md`](docs/V1_PLAN.md)
 - Onboarding + architecture: [`README.md`](README.md)
-- Current state snapshot: [`CURRENT_STATE.md`](CURRENT_STATE.md)
+- Current state snapshot: [`docs/state/snapshot.md`](docs/state/snapshot.md). Index + per-session log: [`CURRENT_STATE.md`](CURRENT_STATE.md) → [`docs/state/log/`](docs/state/log/).
 - Migration history (POT → AIMS): [`../MIGRATION_MAP.md`](../MIGRATION_MAP.md)
 - Archived integration plan: [`../V1_PLAN_INTEGRATION_ARCHIVED.md`](../V1_PLAN_INTEGRATION_ARCHIVED.md)
 - DeepStream reference (archived but still accurate): [`FUTURE_STATE_POT_ARCHIVED.md`](FUTURE_STATE_POT_ARCHIVED.md)
