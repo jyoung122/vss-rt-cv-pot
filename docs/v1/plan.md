@@ -169,6 +169,15 @@ First-run guided walkthrough so a stakeholder can self-serve the demo: Dashboard
 42. ✅ "Tour seen" persisted in `localStorage` under `aims:tour:v1`; auto-launch on first dashboard visit + manual "Take the tour" entry in the header next to the theme toggle (`frontend/src/components/app-header.tsx`).
 43. ⏳ Verify the tour on a fresh browser profile against the live A6000 deploy — every selector resolves, no scroll traps, console clean.
 
+### VLM provider seam (post-Phase 10)
+
+- ✅ Swappable VLM provider selected by `VLM_PROVIDER=cosmos|openai` (default: `cosmos`). No code changes needed to switch provider — env-only.
+- ✅ `backend/app/vlm_providers/` package: `__init__.py` (selector + `VLMProvider` Protocol), `cosmos.py` (existing NIM path, model id env-driven via `COSMOS_MODEL`), `openai_provider.py` (new — frame extraction via ffmpeg at `VLM_FRAME_FPS` fps, base64 image_url content parts, `AsyncOpenAI`), `prompts.py` (shared prompt strings), `parsing.py` (shared `parse_verdict`).
+- ✅ `backend/requirements.txt` — added `openai>=1.50`.
+- ✅ `docker-compose.yml` — `cosmos` service gated behind `profiles: [gpu]`; plain `docker compose up` no longer pulls the 30 GB NIM image. New env vars (`VLM_PROVIDER`, `VLM_FRAME_FPS`, `COSMOS_MODEL`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL`) passed into backend service.
+- ✅ `.env.example` — documented VLM provider selection block with all new vars.
+- ✅ 10 new unit tests in `backend/tests/test_vlm_providers.py` (selector, env overrides, OpenAI validate/parse/think-strip, module isolation). All 31 backend tests pass.
+
 ### Shipped post-Phase 10 (not originally scoped)
 - ✅ `/events` global cross-upload view with animated event detail page (shared SVG camera scenes, bounding-box overlay scrubber, AI summary panel, dispatch/export side panel). Commits `3354cc4`, `ddd42dd`.
 - ✅ `/live` page using shared `camera-scenes.tsx` dispatcher (extracted from events detail).
