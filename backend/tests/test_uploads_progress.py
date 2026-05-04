@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 
 def _stub_app_imports():
-    """Insert fake `app` and `app.db` into sys.modules so uploads_list loads."""
+    """Insert fake modules into sys.modules so uploads_list loads without Docker."""
     if "app" not in sys.modules:
         app_stub = types.ModuleType("app")
         sys.modules["app"] = app_stub
@@ -22,6 +22,40 @@ def _stub_app_imports():
         db_stub = types.ModuleType("app.db")
         db_stub.get_pool = lambda: None  # overridden per-test via patch
         sys.modules["app.db"] = db_stub
+    if "app.upload_queue" not in sys.modules:
+        uq_stub = types.ModuleType("app.upload_queue")
+        uq_stub.get_active_job_id = lambda: None
+        uq_stub.get_queue_position = lambda video_id: None
+        sys.modules["app.upload_queue"] = uq_stub
+    # Stub fastapi if not installed
+    if "fastapi" not in sys.modules:
+        fastapi_stub = types.ModuleType("fastapi")
+
+        class _HTTPException(Exception):
+            def __init__(self, status_code: int, detail: str = ""):
+                self.status_code = status_code
+                self.detail = detail
+
+        class _APIRouter:
+            def get(self, *a, **kw):
+                return lambda f: f
+
+            def post(self, *a, **kw):
+                return lambda f: f
+
+            def delete(self, *a, **kw):
+                return lambda f: f
+
+        fastapi_stub.HTTPException = _HTTPException
+        fastapi_stub.APIRouter = _APIRouter
+        fastapi_stub.UploadFile = object
+        fastapi_stub.Form = lambda **kw: None
+        sys.modules["fastapi"] = fastapi_stub
+
+        # fastapi.responses stub
+        fastapi_responses = types.ModuleType("fastapi.responses")
+        fastapi_responses.Response = object
+        sys.modules["fastapi.responses"] = fastapi_responses
 
 
 _stub_app_imports()
@@ -158,6 +192,17 @@ class ProgressEndpointTests(unittest.TestCase):
              patch.dict(os.environ, env, clear=True):
             result = _run(get_upload_progress("vid1"))
         self.assertFalse(result["vlm_enabled"])
+
+    # ------------------------------------------------------------------
+    # queue fields present in response
+    # ------------------------------------------------------------------
+    def test_progress_includes_queue_fields(self):
+        """Both queue_status and queue_position are present; queue_status is a valid value."""
+        valid_statuses = {"queued", "active", "done", None}
+        result = self._call(_make_row())
+        self.assertIn("queue_status", result)
+        self.assertIn("queue_position", result)
+        self.assertIn(result["queue_status"], valid_statuses)
 
 
 if __name__ == "__main__":
