@@ -7,37 +7,21 @@ import time
 import subprocess
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, Form, HTTPException
+from fastapi.responses import JSONResponse
 import httpx
 
 from app.logging_config import Timer, log_context, new_run_id
 from app.sdr import remove_active_stream, register_stream
 from app.redis_client import clear_stream
 from app.db import get_pool
+from app.upload_queue import enqueue, get_queue_depth, QueueFull, UPLOAD_QUEUE_MAX_DEPTH
 
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 HOST_IP = os.getenv("HOST_IP", "localhost")
 NVSTREAMER_URL = os.getenv("NVSTREAMER_URL", "http://nvstreamer:30000")
-DOCKER_SOCK = "/var/run/docker.sock"
-REDIS_URL = f"redis://{os.getenv('REDIS_HOST', 'redis')}:{os.getenv('REDIS_PORT', '6379')}"
 
 router = APIRouter()
 log = logging.getLogger(__name__)
-
-
-async def _docker_api(method: str, path: str, body: dict | None = None) -> int:
-    """Call Docker Engine API via unix socket. Returns HTTP status code."""
-    cmd = ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", method,
-           "--unix-socket", DOCKER_SOCK, f"http://localhost{path}"]
-    if body is not None:
-        cmd += ["-H", "Content-Type: application/json", "-d", json.dumps(body)]
-    proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await proc.communicate()
-    try:
-        return int(stdout.decode().strip())
-    except ValueError:
-        return 0
 
 
 async def _get_nvstreamer_rtsp_url(filename: str) -> str | None:
@@ -55,41 +39,6 @@ async def _get_nvstreamer_rtsp_url(filename: str) -> str | None:
         except Exception as e:
             log.warning("nvstreamer.streams.query_failed", extra={"error": str(e)})
     return None
-
-
-async def _restart_container(name: str) -> None:
-    status = await _docker_api("POST", f"/containers/{name}/restart?t=5")
-    if status not in (204, 304):
-        log.warning("docker.container.restart.degraded", extra={"container": name, "status_code": status})
-
-
-async def _update_vss_rt_cv_stream(rtsp_url: str) -> None:
-    """Restart vss-rt-cv with the new STREAM_URI so DeepStream picks it up."""
-    # Update the container's env var by stopping, updating, and starting
-    # Simpler approach: just restart — ds-start.sh reads STREAM_URI env var
-    # We need to update the env var first via Docker API
-    # Get current container config
-    cmd = ["curl", "-s", "--unix-socket", DOCKER_SOCK,
-           "http://localhost/containers/vss-rt-cv/json"]
-    proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await proc.communicate()
-    try:
-        config = json.loads(stdout.decode())
-        env = config.get("Config", {}).get("Env", [])
-        new_env = [e for e in env if not e.startswith("STREAM_URI=")]
-        new_env.append(f"STREAM_URI={rtsp_url}")
-    except Exception as e:
-        log.warning("docker.container.config.read_failed", extra={"container": "vss-rt-cv", "error": str(e)})
-        return
-
-    # Docker doesn't support updating env vars on a running container.
-    # Write the RTSP URL to a shared file that ds-start.sh can read instead.
-    url_file = Path(DATA_DIR) / "videos" / "current_stream_url.txt"
-    url_file.write_text(rtsp_url)
-
-    await _restart_container("vss-rt-cv")
 
 
 def _probe_video(path: Path) -> tuple[float | None, int | None, int | None, float | None]:
@@ -149,6 +98,15 @@ async def upload_video(file: UploadFile, prompt: str | None = Form(default=None)
     if ext not in [".mp4", ".mkv"]:
         raise HTTPException(status_code=400, detail="Only .mp4 and .mkv files allowed")
 
+    # Check queue depth before writing the file
+    depth = get_queue_depth()
+    if depth >= UPLOAD_QUEUE_MAX_DEPTH:
+        log.warning("upload.queue.full", extra={"depth": depth})
+        return JSONResponse(
+            status_code=503,
+            content={"error": "queue full", "queue_depth": depth},
+        )
+
     video_dir = Path(DATA_DIR) / "videos"
     video_dir.mkdir(parents=True, exist_ok=True)
 
@@ -207,22 +165,20 @@ async def upload_video(file: UploadFile, prompt: str | None = Form(default=None)
             written,
         )
 
-        # Set current_video_id in Redis for the event indexer
-        import redis.asyncio as aioredis
-        r = aioredis.from_url(REDIS_URL, decode_responses=True)
-        async with r:
-            await r.set("current_video_id", video_id)
-        log.info("upload.current_video.set")
-
         stream_url = f"file:///data/videos/{video_id}{ext}"
-
-        # Write stream URL for ds-start.sh
-        url_file = Path(DATA_DIR) / "videos" / "current_stream_url.txt"
-        url_file.write_text(stream_url)
-
         await remove_active_stream()
         await register_stream(video_id, stream_url)
-        await _update_vss_rt_cv_stream(stream_url)
+
+        # Enqueue for serial processing (redis-set / url-file / container-restart)
+        try:
+            queue_info = enqueue(video_id, str(file_path), ext)
+        except QueueFull as exc:
+            # Rare TOCTOU: another request snuck in — still honour the contract
+            log.warning("upload.queue.full.toctou", extra={"depth": exc.depth})
+            return JSONResponse(
+                status_code=503,
+                content={"error": "queue full", "queue_depth": exc.depth},
+            )
 
         # Fetch the row to return canonical UploadRecord
         row = await pool.fetchrow(
@@ -234,20 +190,27 @@ async def upload_video(file: UploadFile, prompt: str | None = Form(default=None)
                 "duration_ms": timer.duration_ms,
                 "original_filename": file.filename,
                 "size_bytes": written,
+                "queue_status": queue_info["queue_status"],
+                "queue_position": queue_info["queue_position"],
             },
         )
 
-    return {
-        "video_id": row["video_id"],
-        "original_filename": row["original_filename"],
-        "prompt": row["prompt"],
-        "duration_s": row["duration_s"],
-        "width": row["width"],
-        "height": row["height"],
-        "fps": row["fps"],
-        "size_bytes": row["size_bytes"],
-        "uploaded_at": row["uploaded_at"].isoformat(),
-        "playback_url": f"/api/video/{video_id}",
-        "event_count": 0,
-        "track_count": 0,
-    }
+    return JSONResponse(
+        status_code=202,
+        content={
+            "video_id": row["video_id"],
+            "original_filename": row["original_filename"],
+            "prompt": row["prompt"],
+            "duration_s": row["duration_s"],
+            "width": row["width"],
+            "height": row["height"],
+            "fps": row["fps"],
+            "size_bytes": row["size_bytes"],
+            "uploaded_at": row["uploaded_at"].isoformat(),
+            "playback_url": f"/api/video/{video_id}",
+            "event_count": 0,
+            "track_count": 0,
+            "queue_status": queue_info["queue_status"],
+            "queue_position": queue_info["queue_position"],
+        },
+    )

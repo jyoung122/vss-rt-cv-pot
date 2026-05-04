@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
 from app.db import get_pool
+import app.upload_queue as upload_queue
 
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 
@@ -139,8 +140,33 @@ async def get_upload_progress(video_id: str):
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Upload not found")
+
+    # Determine queue fields
+    video_id_str = row["video_id"]
+    active_id = upload_queue.get_active_job_id()
+    queue_pos = upload_queue.get_queue_position(video_id_str)
+
+    if active_id == video_id_str:
+        queue_status: str | None = "active"
+        queue_position: int | None = None
+    elif queue_pos is not None:
+        queue_status = "queued"
+        queue_position = queue_pos
+    else:
+        # Check if processing has completed (has events or incidents, or was
+        # previously active). We use a simple heuristic: if it's not in the
+        # queue and not active, it's either "done" (processed via queue) or
+        # null (legacy / never queued). We expose "done" if vlm_done+vlm_skipped+vlm_error>0
+        # OR event_count > 0, otherwise null.
+        has_data = (
+            row["event_count"] > 0
+            or row["incidents_total"] > 0
+        )
+        queue_status = "done" if has_data else None
+        queue_position = None
+
     return {
-        "video_id": row["video_id"],
+        "video_id": video_id_str,
         "duration_s": row["duration_s"],
         "event_count": row["event_count"],
         "incidents_total": row["incidents_total"],
@@ -149,6 +175,8 @@ async def get_upload_progress(video_id: str):
         "vlm_skipped": row["vlm_skipped"],
         "vlm_error": row["vlm_error"],
         "vlm_enabled": vlm_enabled,
+        "queue_status": queue_status,
+        "queue_position": queue_position,
     }
 
 
