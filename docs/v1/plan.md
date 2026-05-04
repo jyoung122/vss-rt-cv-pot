@@ -178,6 +178,12 @@ First-run guided walkthrough so a stakeholder can self-serve the demo: Dashboard
 - ✅ `.env.example` — documented VLM provider selection block with all new vars.
 - ✅ 10 new unit tests in `backend/tests/test_vlm_providers.py` (selector, env overrides, OpenAI validate/parse/think-strip, module isolation). All 31 backend tests pass.
 
+#### VLM provider follow-ups (not blocking)
+
+- ⏳ **Live validation against `gpt-5.4-mini`.** Tests stub `AsyncOpenAI`; the first real call could surface a wrong model id, unexpected response shape, or pricing surprise. Cheapest first check: deploy with `VLM_PROVIDER=openai` + `OPENAI_API_KEY` + `OPENAI_MODEL=gpt-5.4-mini`, run `POST /api/uploads/91_Country_Club-1777844748/analyze` (the open Cosmos-2B aftermath case), inspect verdict + `vlm_model` column. Compare against the planned Cosmos-8B swap as the alternative quality fix.
+- ⏳ **Provider badge in the Why panel.** Frontend already renders `vlm_model` text; a small visual distinction between Cosmos and OpenAI verdicts (e.g. provider chip alongside the verdict pill) helps during A/B comparisons. Frontend-only; shadcn `Badge` primitive; ~1 hour.
+- ⏸ **A/B mode — both providers per incident.** Same incident validated by both Cosmos and OpenAI with results stored as siblings; UI shows both verdicts side-by-side. Useful for prompt/model tuning and for building demo confidence in the proprietary path. Out of scope unless we want it — schema change (or per-provider rows) plus dual-call worker logic; ~1 day.
+
 ### Shipped post-Phase 10 (not originally scoped)
 - ✅ `/events` global cross-upload view with animated event detail page (shared SVG camera scenes, bounding-box overlay scrubber, AI summary panel, dispatch/export side panel). Commits `3354cc4`, `ddd42dd`.
 - ✅ `/live` page using shared `camera-scenes.tsx` dispatcher (extracted from events detail).
