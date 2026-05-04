@@ -141,7 +141,14 @@ services:
       LOG_FORMAT: ${LOG_FORMAT:-json}
       SERVICE_NAME: aims-backend
       VLM_ENABLED: ${VLM_ENABLED:-false}
-      COSMOS_URL: http://cosmos:8000
+      VLM_PROVIDER: ${VLM_PROVIDER:-cosmos}
+      VLM_TIMEOUT_S: ${VLM_TIMEOUT_S:-120}
+      VLM_FRAME_FPS: ${VLM_FRAME_FPS:-1}
+      COSMOS_URL: ${COSMOS_URL:-http://cosmos:8000}
+      COSMOS_MODEL: ${COSMOS_MODEL:-nvidia/cosmos-reason2-2b}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
     volumes:
       - ${DATA_DIR}/videos:/data/videos
       - /var/run/docker.sock:/var/run/docker.sock
@@ -180,6 +187,7 @@ services:
     restart: unless-stopped
 
   cosmos:
+    profiles: [gpu]
     image: nvcr.io/nim/nvidia/cosmos-reason2-2b:latest
     container_name: aims-cosmos
     ports:
