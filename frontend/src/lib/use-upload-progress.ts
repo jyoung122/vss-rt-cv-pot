@@ -1,7 +1,11 @@
 /**
- * useUploadProgress — 5-stage upload state machine.
+ * useUploadProgress — 6-stage upload state machine.
  *
- * Stages: idle → upload → ingest → rules → vlm → done | error
+ * Stages: idle → [queued →] upload → ingest → rules → vlm → done | error
+ *
+ * The "queued" stage is conditional: it only appears when the initial
+ * POST /api/upload response returns queue_status="queued". Once the
+ * backend flips queue_status to "active", the strip advances.
  *
  * Polling: recursive setTimeout (not setInterval) so a slow fetch never
  * queues a backlog of concurrent requests. AbortController cancels
@@ -10,13 +14,17 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-export type UploadStage = 'idle' | 'upload' | 'ingest' | 'rules' | 'vlm' | 'done' | 'error'
+export type UploadStage = 'idle' | 'queued' | 'upload' | 'ingest' | 'rules' | 'vlm' | 'done' | 'error'
 
 export interface UploadProgressState {
   stage: UploadStage
   percent: number       // XHR upload progress (0-100); 0 outside upload stage
   sub: string | null    // e.g. "12 480 events", "12 / 57 validated", "running…"
   error: string | null  // surfaced from /analyze or polling failures
+  queueStatus: 'queued' | 'active' | 'done' | null
+  queuePosition: number | null
+  /** True if this upload was ever in the queued state — used to keep the Queued pill visible */
+  wasQueued: boolean
 }
 
 export interface UploadProgressActions {
@@ -24,8 +32,8 @@ export interface UploadProgressActions {
   startUpload: () => void
   /** Call on XHR progress events. */
   setUploadPercent: (pct: number) => void
-  /** Call when upload HTTP 200 arrives with the returned video_id. */
-  uploadDone: (videoId: string, durationS: number | null) => void
+  /** Call when upload HTTP 200 arrives with the returned video_id, queue info, etc. */
+  uploadDone: (videoId: string, durationS: number | null, queueStatus?: 'queued' | 'active' | null, queuePosition?: number | null) => void
   /** Call on XHR upload error. */
   uploadError: (msg: string) => void
   /** Reset to idle (e.g. after done+refresh). */
@@ -37,6 +45,9 @@ export function useUploadProgress(): UploadProgressState & UploadProgressActions
   const [percent, setPercent] = useState(0)
   const [sub, setSub] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [queueStatus, setQueueStatus] = useState<'queued' | 'active' | 'done' | null>(null)
+  const [queuePosition, setQueuePosition] = useState<number | null>(null)
+  const [wasQueued, setWasQueued] = useState(false)
 
   // Internal refs so polling callbacks can read current state without stale closures
   const videoIdRef = useRef<string | null>(null)
@@ -44,6 +55,9 @@ export function useUploadProgress(): UploadProgressState & UploadProgressActions
   const stageRef = useRef<UploadStage>('idle')
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  // Whether this upload was ever queued — used to keep the Queued pill visible
+  const wasQueuedRef = useRef(false)
 
   // Plateau detection state
   const plateauRef = useRef({ lastCount: -1, streak: 0, startedAt: 0 })
@@ -151,6 +165,55 @@ export function useUploadProgress(): UploadProgressState & UploadProgressActions
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Queue polling (every 2 s — slow-moving state) ─────────────────────────
+  const scheduleQueuePoll = useCallback((videoId: string) => {
+    clearTimer()
+    pollTimerRef.current = setTimeout(() => void pollQueue(videoId), 2000)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pollQueue = useCallback(async (videoId: string) => {
+    if (stageRef.current !== 'queued') return
+    try {
+      const ctrl = new AbortController()
+      abortRef.current = ctrl
+      const res = await fetch(`/api/uploads/${videoId}/progress`, {
+        cache: 'no-store',
+        signal: ctrl.signal,
+      })
+      if (!res.ok) throw new Error(`Poll failed: HTTP ${res.status}`)
+      const d = (await res.json()) as ProgressResponse
+
+      // Update queue position display
+      if (d.queue_status === 'queued') {
+        setQueueStatus('queued')
+        setQueuePosition(d.queue_position ?? null)
+        scheduleQueuePoll(videoId)
+        return
+      }
+
+      // queue_status flipped to "active" (or null/done) — advance out of queued
+      setQueueStatus(d.queue_status ?? 'active')
+      setQueuePosition(null)
+
+      // If upload bytes are already done (percent=100 in upload stage was
+      // never entered because we went idle→queued), jump straight to ingest.
+      // Otherwise enter the upload stage normally.
+      // Since the XHR was already submitted before we entered queued state,
+      // the bytes are done — go straight to ingest.
+      durationRef.current = d.duration_s ?? durationRef.current
+      plateauRef.current = { lastCount: -1, streak: 0, startedAt: Date.now() }
+      setPercent(100)
+      setStageAndRef('ingest')
+      setSub(null)
+      scheduleIngestPoll(videoId)
+    } catch (err) {
+      if ((err as { name?: string }).name === 'AbortError') return
+      setError(err instanceof Error ? err.message : 'Polling failed')
+      setSub(null)
+      setStageAndRef('error')
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Ingest polling (every 1 s) ────────────────────────────────────────────
   const scheduleIngestPoll = useCallback((videoId: string) => {
     clearTimer()
@@ -216,11 +279,15 @@ export function useUploadProgress(): UploadProgressState & UploadProgressActions
   const startUpload = useCallback(() => {
     videoIdRef.current = null
     durationRef.current = null
+    wasQueuedRef.current = false
     plateauRef.current = { lastCount: -1, streak: 0, startedAt: 0 }
     setStageAndRef('upload')
     setPercent(0)
     setSub(null)
     setError(null)
+    setQueueStatus(null)
+    setQueuePosition(null)
+    setWasQueued(false)
   }, [setStageAndRef])
 
   const setUploadPercent = useCallback((pct: number) => {
@@ -228,16 +295,33 @@ export function useUploadProgress(): UploadProgressState & UploadProgressActions
   }, [])
 
   const uploadDone = useCallback(
-    (videoId: string, durationS: number | null) => {
+    (videoId: string, durationS: number | null, qs?: 'queued' | 'active' | null, qp?: number | null) => {
       videoIdRef.current = videoId
       durationRef.current = durationS
-      plateauRef.current = { lastCount: -1, streak: 0, startedAt: Date.now() }
-      setPercent(100)
-      setStageAndRef('ingest')
-      setSub(null)
-      scheduleIngestPoll(videoId)
+
+      if (qs === 'queued') {
+        // Enter the queued holding stage — XHR bytes are done but processing
+        // is waiting behind other jobs in DeepStream.
+        wasQueuedRef.current = true
+        setWasQueued(true)
+        setQueueStatus('queued')
+        setQueuePosition(qp ?? null)
+        setPercent(100)
+        setStageAndRef('queued')
+        setSub(null)
+        scheduleQueuePoll(videoId)
+      } else {
+        // Active immediately — go straight to ingest as before
+        setQueueStatus(qs ?? null)
+        setQueuePosition(null)
+        plateauRef.current = { lastCount: -1, streak: 0, startedAt: Date.now() }
+        setPercent(100)
+        setStageAndRef('ingest')
+        setSub(null)
+        scheduleIngestPoll(videoId)
+      }
     },
-    [setStageAndRef, scheduleIngestPoll],
+    [setStageAndRef, scheduleIngestPoll, scheduleQueuePoll],
   )
 
   const uploadError = useCallback(
@@ -254,11 +338,15 @@ export function useUploadProgress(): UploadProgressState & UploadProgressActions
     abort()
     videoIdRef.current = null
     durationRef.current = null
+    wasQueuedRef.current = false
     plateauRef.current = { lastCount: -1, streak: 0, startedAt: 0 }
     setStageAndRef('idle')
     setPercent(0)
     setSub(null)
     setError(null)
+    setQueueStatus(null)
+    setQueuePosition(null)
+    setWasQueued(false)
   }, [setStageAndRef, clearTimer, abort])
 
   // Cleanup on unmount
@@ -274,6 +362,9 @@ export function useUploadProgress(): UploadProgressState & UploadProgressActions
     percent,
     sub,
     error,
+    queueStatus,
+    queuePosition,
+    wasQueued,
     startUpload,
     setUploadPercent,
     uploadDone,
@@ -293,4 +384,6 @@ interface ProgressResponse {
   vlm_skipped: number
   vlm_error: number
   vlm_enabled: boolean
+  queue_status: 'queued' | 'active' | 'done' | null
+  queue_position: number | null
 }

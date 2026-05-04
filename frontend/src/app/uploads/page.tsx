@@ -57,8 +57,8 @@ const SUGGESTIONS = [
   'Signal issues',
 ]
 
-// 5-stage strip — display label and matching slug
-const PIPELINE_STAGES: { label: string; slug: UploadStage }[] = [
+// Base 5-stage strip — display label and matching slug
+const PIPELINE_STAGES_BASE: { label: string; slug: UploadStage }[] = [
   { label: 'Uploading',       slug: 'upload'  },
   { label: 'Ingesting',       slug: 'ingest'  },
   { label: 'Detecting rules', slug: 'rules'   },
@@ -66,7 +66,14 @@ const PIPELINE_STAGES: { label: string; slug: UploadStage }[] = [
   { label: 'Done',            slug: 'done'    },
 ]
 
-const STAGE_ORDER: UploadStage[] = ['upload', 'ingest', 'rules', 'vlm', 'done']
+// With optional leading Queued stage prepended when this upload was queued
+const PIPELINE_STAGES_QUEUED: { label: string; slug: UploadStage }[] = [
+  { label: 'Queued',          slug: 'queued'  },
+  ...PIPELINE_STAGES_BASE,
+]
+
+const STAGE_ORDER_BASE: UploadStage[] = ['upload', 'ingest', 'rules', 'vlm', 'done']
+const STAGE_ORDER_QUEUED: UploadStage[] = ['queued', 'upload', 'ingest', 'rules', 'vlm', 'done']
 
 export default function UploadsPage() {
   return (
@@ -152,14 +159,31 @@ function UploadsContent() {
             if (xhr.status >= 200 && xhr.status < 300) {
               progress.setUploadPercent(100)
               try {
-                const body = JSON.parse(xhr.responseText) as { video_id?: string; duration_s?: number }
+                const body = JSON.parse(xhr.responseText) as {
+                  video_id?: string
+                  duration_s?: number
+                  queue_status?: 'queued' | 'active'
+                  queue_position?: number
+                }
                 const vid = body.video_id ?? ''
                 const dur = body.duration_s ?? null
-                progress.uploadDone(vid, dur)
+                const qs = body.queue_status ?? null
+                const qp = body.queue_position ?? null
+                progress.uploadDone(vid, dur, qs, qp)
               } catch {
                 progress.uploadDone('', null)
               }
               resolve()
+            } else if (xhr.status === 503) {
+              // Demo queue is full
+              let msg = 'Demo queue is full — try again in a moment.'
+              try {
+                const body = JSON.parse(xhr.responseText) as { error?: string; queue_depth?: number }
+                if (body.error === 'queue full') {
+                  msg = `Demo queue is full${body.queue_depth != null ? ` (${body.queue_depth} jobs)` : ''} — try again in a moment.`
+                }
+              } catch { /* use default msg */ }
+              reject(new Error(msg))
             } else {
               reject(new Error(`Upload failed: HTTP ${xhr.status}`))
             }
@@ -419,6 +443,8 @@ function UploadsContent() {
                     percent={progress.percent}
                     sub={progress.sub}
                     error={progress.error}
+                    queuePosition={progress.queuePosition}
+                    wasQueued={progress.wasQueued}
                   />
                 </div>
               </div>
@@ -728,6 +754,7 @@ function StageBadge({ stage, error }: { stage: UploadStage; error: string | null
   const isDone = stage === 'done'
   const labelMap: Record<UploadStage, string> = {
     idle: 'Idle',
+    queued: 'Queued',
     upload: 'Uploading',
     ingest: 'Ingesting',
     rules: 'Detecting rules',
@@ -752,18 +779,25 @@ function StageBadge({ stage, error }: { stage: UploadStage; error: string | null
   )
 }
 
-// ── 5-stage pipeline strip ──────────────────────────────────────────────────
+// ── Pipeline strip (5 stages, or 6 when wasQueued=true) ────────────────────
 function PipelineStrip({
   stage,
   percent,
   sub,
   error,
+  queuePosition,
+  wasQueued,
 }: {
   stage: UploadStage
   percent: number
   sub: string | null
   error: string | null
+  queuePosition: number | null
+  wasQueued: boolean
 }) {
+  const PIPELINE_STAGES = wasQueued ? PIPELINE_STAGES_QUEUED : PIPELINE_STAGES_BASE
+  const STAGE_ORDER = wasQueued ? STAGE_ORDER_QUEUED : STAGE_ORDER_BASE
+
   const activeIdx = STAGE_ORDER.indexOf(stage)
   const isError = stage === 'error'
 
@@ -771,6 +805,16 @@ function PipelineStrip({
   // a separate concept: the error occurs at whichever pill was last active.
   // We surface the error tooltip on the first pill in the error case.
   const errorPillSlug = isError ? (PIPELINE_STAGES[0]?.slug ?? 'upload') : null
+
+  // Sub-text for the Queued pill
+  const queueSub =
+    stage === 'queued'
+      ? queuePosition === 0
+        ? 'next up'
+        : queuePosition != null
+          ? `${queuePosition} ahead — waiting for DeepStream`
+          : 'waiting for DeepStream'
+      : null
 
   return (
     <div>
@@ -780,14 +824,17 @@ function PipelineStrip({
           const done = !isError && activeIdx > i
           const active = !isError && activeIdx === i
           const isUploadSlot = slug === 'upload'
+          const isQueuedSlot = slug === 'queued'
 
           const width = done
             ? '100%'
             : active && isUploadSlot
               ? `${percent}%`
-              : active
-                ? '60%'
-                : '0%'
+              : active && isQueuedSlot
+                ? '40%'   // indeterminate-ish progress for queued state
+                : active
+                  ? '60%'
+                  : '0%'
 
           return (
             <div
@@ -799,7 +846,11 @@ function PipelineStrip({
                 className="h-full transition-[width] duration-300"
                 style={{
                   width,
-                  background: done ? 'var(--ok-500)' : 'var(--accent-500)',
+                  background: done
+                    ? 'var(--ok-500)'
+                    : isQueuedSlot && active
+                      ? 'var(--fg-3)'   // muted color for queued state
+                      : 'var(--accent-500)',
                 }}
               />
             </div>
@@ -823,15 +874,30 @@ function PipelineStrip({
           // show the label. The plan's "grey pill with —" is for the ACTIVE state when
           // vlm_enabled=false — that's handled in the hook (it never enters vlm stage).
           const showErrorHere = isError && slug === errorPillSlug
+          const isQueuedSlot = slug === 'queued'
 
           return (
             <div key={slug} className="flex flex-col items-start">
               <span
-                style={active ? { color: 'var(--accent-400)' } : {}}
+                style={
+                  active && isQueuedSlot
+                    ? { color: 'var(--fg-2)' }
+                    : active
+                      ? { color: 'var(--accent-400)' }
+                      : {}
+                }
               >
                 {label.toUpperCase()}
               </span>
-              {active && sub && (
+              {active && isQueuedSlot && queueSub && (
+                <span
+                  className="mt-0.5 text-[9px] normal-case tracking-normal"
+                  style={{ color: 'var(--fg-4)', opacity: 0.7 }}
+                >
+                  {queueSub}
+                </span>
+              )}
+              {active && !isQueuedSlot && sub && (
                 <span
                   className="mt-0.5 text-[9px] normal-case tracking-normal"
                   style={{ color: 'var(--fg-4)', opacity: 0.6 }}
