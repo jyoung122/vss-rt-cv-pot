@@ -24,6 +24,7 @@ from app.sdr import remove_active_stream
 from app.redis_client import clear_stream
 from app.db import init_pool, close_pool
 from app.event_indexer import run_indexer
+from app.upload_queue import start_worker, stop_worker
 
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
@@ -34,6 +35,7 @@ log = logging.getLogger(__name__)
 
 redis_client = None
 _indexer_task: asyncio.Task | None = None
+_queue_worker_task: asyncio.Task | None = None
 
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
@@ -92,7 +94,7 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global redis_client, _indexer_task
+    global redis_client, _indexer_task, _queue_worker_task
 
     log.info("backend.start")
 
@@ -118,6 +120,11 @@ async def lifespan(app: FastAPI):
     _indexer_task = asyncio.create_task(run_indexer(redis_url))
     log.info("event_indexer.task.started")
 
+    # Upload queue worker
+    from app.db import get_pool as _get_pool
+    _queue_worker_task = start_worker(_get_pool())
+    log.info("upload_queue.worker.task.started")
+
     yield
 
     # Shutdown
@@ -128,6 +135,8 @@ async def lifespan(app: FastAPI):
             await _indexer_task
         except asyncio.CancelledError:
             pass
+
+    await stop_worker()
 
     if redis_client is not None:
         await redis_client.aclose()
