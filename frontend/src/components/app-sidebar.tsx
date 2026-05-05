@@ -1,8 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { BookOpen, LayoutDashboard, Settings, ShieldAlert, Upload, Users, Video, Wand2 } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import { BookOpen, LayoutDashboard, LogOut, Settings, ShieldAlert, Upload, Users, Video, Wand2 } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
 
 import {
   Sidebar,
@@ -33,6 +34,7 @@ function isActive(pathname: string, href: string) {
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const router = useRouter()
 
   return (
     <Sidebar collapsible="icon" data-tour="sidebar">
@@ -40,12 +42,12 @@ export function AppSidebar() {
         <Link href="/" className="flex items-center justify-center px-2 py-3">
           <img
             src="/brand/favicon.png"
-            alt="SSI"
+            alt="AIMS"
             className="size-6 hidden group-data-[collapsible=icon]:block"
           />
           <img
-            src="/brand/ssi-logo.jpg"
-            alt="SSI"
+            src="/brand/aims-logo.png"
+            alt="AIMS"
             className="h-8 w-auto group-data-[collapsible=icon]:hidden"
           />
         </Link>
@@ -111,6 +113,20 @@ export function AppSidebar() {
                     <Users />
                     <span>Team</span>
                   </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  tooltip="Sign out"
+                  className="group-data-[collapsible=icon]:justify-center !bg-transparent hover:!bg-transparent hover:!text-[var(--err-500)]"
+                  onClick={async () => {
+                    const supabase = createClient()
+                    await supabase.auth.signOut()
+                    router.push("/login")
+                  }}
+                >
+                  <LogOut />
+                  <span>Sign out</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
