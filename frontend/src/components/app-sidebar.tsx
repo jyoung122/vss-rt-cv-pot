@@ -1,8 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { BookOpen, LayoutDashboard, Settings, ShieldAlert, Upload, Users, Video, Wand2 } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import { BookOpen, LayoutDashboard, LogOut, Settings, ShieldAlert, Upload, Users, Video, Wand2 } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
 
 import {
   Sidebar,
@@ -33,6 +34,7 @@ function isActive(pathname: string, href: string) {
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const router = useRouter()
 
   return (
     <Sidebar collapsible="icon" data-tour="sidebar">
@@ -111,6 +113,20 @@ export function AppSidebar() {
                     <Users />
                     <span>Team</span>
                   </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  tooltip="Sign out"
+                  className="group-data-[collapsible=icon]:justify-center !bg-transparent hover:!bg-transparent hover:!text-[var(--err-500)]"
+                  onClick={async () => {
+                    const supabase = createClient()
+                    await supabase.auth.signOut()
+                    router.push("/login")
+                  }}
+                >
+                  <LogOut />
+                  <span>Sign out</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
