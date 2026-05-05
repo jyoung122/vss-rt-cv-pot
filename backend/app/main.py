@@ -3,7 +3,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 import redis.asyncio as redis
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -25,6 +25,7 @@ from app.redis_client import clear_stream
 from app.db import init_pool, close_pool
 from app.event_indexer import run_indexer
 from app.upload_queue import start_worker, stop_worker
+from app.auth import require_user
 
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
@@ -155,11 +156,12 @@ app.add_middleware(
 )
 app.add_middleware(RequestIdMiddleware)
 
-app.include_router(upload_router)
-app.include_router(playback_router)
+app.include_router(upload_router, dependencies=[Depends(require_user)])
+app.include_router(playback_router, dependencies=[Depends(require_user)])
+# TODO(auth): WS auth via query-param token, deferred
 app.include_router(events_router)
-app.include_router(uploads_list_router)
-app.include_router(incidents_router)
+app.include_router(uploads_list_router, dependencies=[Depends(require_user)])
+app.include_router(incidents_router, dependencies=[Depends(require_user)])
 
 
 @app.get("/healthz")
@@ -168,7 +170,7 @@ async def health():
     return {"status": "ok"}
 
 
-@app.post("/api/reset")
+@app.post("/api/reset", dependencies=[Depends(require_user)])
 async def reset():
     redis_url = f"redis://{REDIS_HOST}:{REDIS_PORT}"
     await remove_active_stream()
