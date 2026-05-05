@@ -1,5 +1,5 @@
-# Trimmed self-hosted Supabase stack (db, auth, meta, studio, kong).
-# Omits: rest/PostgREST, realtime, storage, imgproxy, edge-functions, analytics, vector, supavisor.
+# Trimmed self-hosted Supabase stack (db, auth, meta, studio, kong, storage, imgproxy, minio).
+# Omits: rest/PostgREST, realtime, edge-functions, analytics, vector, supavisor.
 #
 # Usage (overlay on either base compose file):
 #   docker compose -f docker-compose.dev.yml   -f docker-compose.supabase.yml up -d
@@ -51,6 +51,44 @@ services:
       - vss-net
     restart: unless-stopped
 
+  imgproxy:
+    image: darthsim/imgproxy:v3.8.0
+    container_name: supabase-imgproxy
+    environment:
+      IMGPROXY_BIND: ":5001"
+      IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
+      IMGPROXY_USE_ETAG: "true"
+      IMGPROXY_ENABLE_WEBP_DETECTION: ${IMGPROXY_AUTO_WEBP:-true}
+    volumes:
+      - supabase-storage-data:/var/lib/storage:ro
+    networks:
+      - vss-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "imgproxy", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  kong:
+    image: kong:2.8.1
+    container_name: supabase-kong
+    ports:
+      - "${KONG_HTTP_PORT:-8000}:8000"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+    volumes:
+      - ./supabase/kong.yml:/var/lib/kong/kong.yml:ro
+    networks:
+      - vss-net
+    restart: unless-stopped
+
   meta:
     image: supabase/postgres-meta:v0.84.2
     container_name: supabase-meta
@@ -67,6 +105,91 @@ services:
     networks:
       - vss-net
     restart: unless-stopped
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    container_name: supabase-minio
+    command: server --console-address ":9001" /data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9001:9001"
+    volumes:
+      - supabase-minio-data:/data
+    networks:
+      - vss-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  minio-setup:
+    image: minio/mc:latest
+    container_name: supabase-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - vss-net
+    restart: "no"
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+        mc mb -p local/$${GLOBAL_S3_BUCKET} || true
+      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      GLOBAL_S3_BUCKET: ${GLOBAL_S3_BUCKET}
+
+  storage:
+    image: supabase/storage-api:v1.13.0
+    container_name: supabase-storage
+    depends_on:
+      db:
+        condition: service_healthy
+      auth:
+        condition: service_started
+      minio:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      # Placeholder — we don't run PostgREST; storage-api requires the var but
+      # won't call it for our file-upload-only usage pattern.
+      POSTGREST_URL: http://meta:8080
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@db:5432/postgres
+      FILE_SIZE_LIMIT: "5368709120"
+      STORAGE_BACKEND: s3
+      GLOBAL_S3_BUCKET: ${GLOBAL_S3_BUCKET}
+      GLOBAL_S3_ENDPOINT: ${STORAGE_S3_ENDPOINT}
+      GLOBAL_S3_PROTOCOL: http
+      GLOBAL_S3_FORCE_PATH_STYLE: "true"
+      AWS_ACCESS_KEY_ID: ${S3_PROTOCOL_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${S3_PROTOCOL_ACCESS_KEY_SECRET}
+      AWS_DEFAULT_REGION: ${REGION}
+      TENANT_ID: ${STORAGE_TENANT_ID}
+      REGION: ${REGION}
+      ENABLE_IMAGE_TRANSFORMATION: "true"
+      IMGPROXY_URL: http://imgproxy:5001
+    volumes:
+      - supabase-storage-data:/var/lib/storage
+    networks:
+      - vss-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 --spider http://localhost:5000/status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   studio:
     image: supabase/studio:20250106-e00a393
@@ -87,26 +210,10 @@ services:
       - vss-net
     restart: unless-stopped
 
-  kong:
-    image: kong:2.8.1
-    container_name: supabase-kong
-    ports:
-      - "${KONG_HTTP_PORT:-8000}:8000"
-    environment:
-      KONG_DATABASE: "off"
-      KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
-      KONG_DNS_ORDER: LAST,A,CNAME
-      KONG_PLUGINS: request-transformer,cors,key-auth,acl
-      SUPABASE_ANON_KEY: ${ANON_KEY}
-      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
-    volumes:
-      - ./supabase/kong.yml:/var/lib/kong/kong.yml:ro
-    networks:
-      - vss-net
-    restart: unless-stopped
-
 networks:
   vss-net:
 
 volumes:
   supabase-db-data: {}
+  supabase-minio-data: {}
+  supabase-storage-data: {}
