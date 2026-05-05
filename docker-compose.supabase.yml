@@ -1,0 +1,113 @@
+# Trimmed self-hosted Supabase stack (db, auth, meta, studio, kong).
+# Omits: rest/PostgREST, realtime, storage, imgproxy, edge-functions, analytics, vector, supavisor.
+#
+# Usage (overlay on either base compose file):
+#   docker compose -f docker-compose.dev.yml   -f docker-compose.supabase.yml up -d
+#   docker compose -f docker-compose.yml       -f docker-compose.supabase.yml up -d
+
+services:
+  db:
+    image: supabase/postgres:15.8.1.060
+    container_name: supabase-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXP: 3600
+    volumes:
+      - supabase-db-data:/var/lib/postgresql/data
+    networks:
+      - vss-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  auth:
+    image: supabase/gotrue:v2.158.1
+    container_name: supabase-auth
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/postgres
+      GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_DISABLE_SIGNUP: ${GOTRUE_DISABLE_SIGNUP:-true}
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      # Auto-confirm so operator accounts can be provisioned without SMTP
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
+    networks:
+      - vss-net
+    restart: unless-stopped
+
+  meta:
+    image: supabase/postgres-meta:v0.84.2
+    container_name: supabase-meta
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: db
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: postgres
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
+    networks:
+      - vss-net
+    restart: unless-stopped
+
+  studio:
+    image: supabase/studio:20250106-e00a393
+    container_name: supabase-studio
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      STUDIO_PG_META_URL: http://meta:8080
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DEFAULT_ORGANIZATION_NAME: AIMS
+      DEFAULT_PROJECT_NAME: AIMS
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_PUBLIC_URL: ${SITE_URL:-http://localhost:3000}
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+    networks:
+      - vss-net
+    restart: unless-stopped
+
+  kong:
+    image: kong:2.8.1
+    container_name: supabase-kong
+    ports:
+      - "${KONG_HTTP_PORT:-8000}:8000"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+    volumes:
+      - ./supabase/kong.yml:/var/lib/kong/kong.yml:ro
+    networks:
+      - vss-net
+    restart: unless-stopped
+
+networks:
+  vss-net:
+    external: true
+
+volumes:
+  supabase-db-data: {}
