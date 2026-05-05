@@ -201,7 +201,7 @@ First-run guided walkthrough so a stakeholder can self-serve the demo: Dashboard
 - ⏸ Per-clip thumbnails (`ffprobe -ss` frame extraction)
 - ⏸ NvDCF tracker swap (currently IOU) — would reduce track-ID swap false positives in the rule pack
 - ⏸ S3/MinIO for video bytes (currently local disk — fine for single-VM demo)
-- ⏸ Auth (Supabase JWT or simpler) — v1.5 per locked decisions
+- ⏸ Auth — **v1.5 target: self-hosted Supabase Auth (OSS GoTrue, MIT)**. Decided 2026-05-05 over NextAuth. Reasons: (a) cross-service JWT validation is stock — FastAPI verifies the Supabase-issued JWT with `python-jose` against the project secret; NextAuth defaults to opaque session cookies and assumes Next.js owns auth, so calling FastAPI from React requires a BFF route or shared-secret JWT shim. (b) Prod lifecycle features (email verification, password reset, magic links, MFA, OAuth providers) are built in; with NextAuth you wire up email templates, MFA libs, etc. yourself. (c) Self-host avoids vendor lock — start hosted, migrate to OSS docker-compose later, same JWT format. Trade-off accepted: SMTP + secret rotation + Postgres ops are ours.
 - ⏸ Live (non-batch) incident detection on RTSP streams — current design is per-upload batch
 - ⏸ GDINO open-vocab detection driven by the upload-page prompt textarea — v1.5
 - ⏸ Operator-facing `/status` UI for "Did my upload process? Why did it fail?" — separate from support/dev logs
@@ -406,7 +406,7 @@ First-run guided walkthrough so a stakeholder can self-serve the demo: Dashboard
 
 ## Out of scope (deferred)
 
-- **v1.5:** auth (Supabase JWT or simpler), upload history (Postgres), saved searches
+- **v1.5:** auth (self-hosted Supabase Auth — see deferred-list rationale), upload history (Postgres), saved searches
 - **v2:** RTSP streaming via MediaMTX, multi-camera, behavior-analytics rules, ES detection search
 - **v3:** Alert verification (VLM), agent layer
 
