@@ -80,7 +80,6 @@ class OpenAIProvider:
             response = await self._client.chat.completions.create(
                 model=self.model_id,
                 messages=[{"role": "user", "content": content}],
-                response_format={"type": "json_object"},
                 temperature=0.1,
             )
 
