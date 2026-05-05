@@ -107,7 +107,6 @@ services:
 
 networks:
   vss-net:
-    external: true
 
 volumes:
   supabase-db-data: {}

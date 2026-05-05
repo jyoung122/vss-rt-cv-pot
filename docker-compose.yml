@@ -23,25 +23,6 @@ services:
       retries: 5
       start_period: 5s
 
-  postgres:
-    image: postgres:16-alpine
-    container_name: aims-postgres
-    environment:
-      POSTGRES_USER: aims
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aims}
-      POSTGRES_DB: aims
-    volumes:
-      - aims-pg-data:/var/lib/postgresql/data
-    networks:
-      - vss-net
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aims -d aims"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
   nvstreamer:
     image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_TAG}
     container_name: vss-nvstreamer
@@ -135,7 +116,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       DATA_DIR: /data
-      DATABASE_URL: ${DATABASE_URL:-postgresql://aims:aims@postgres:5432/aims}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/postgres}
       ENV: ${ENV:-prod}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: ${LOG_FORMAT:-json}
@@ -149,6 +130,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      SUPABASE_JWT_SECRET: ${JWT_SECRET}
     volumes:
       - ${DATA_DIR}/videos:/data/videos
       - /var/run/docker.sock:/var/run/docker.sock
@@ -157,8 +139,6 @@ services:
         condition: service_healthy
       sdr:
         condition: service_started
-      postgres:
-        condition: service_healthy
     networks:
       - vss-net
     restart: unless-stopped
@@ -223,5 +203,4 @@ networks:
     driver: bridge
 
 volumes:
-  aims-pg-data: {}
   aims-cosmos-cache: {}
