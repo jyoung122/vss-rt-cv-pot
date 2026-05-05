@@ -2,7 +2,7 @@
 
 What is actually running on `main` right now. Truths here decay as code lands; refresh whenever a session changes the shape of any service. For dated session notes see [`log/`](log/). For the index see [`../../CURRENT_STATE.md`](../../CURRENT_STATE.md). For the roadmap see [`../v1/plan.md`](../v1/plan.md).
 
-**Last refreshed:** 2026-05-04 (post upload-queue + VLM provider seam).
+**Last refreshed:** 2026-05-05 (post collision-window fix + live VLM validation).
 
 ---
 
@@ -38,7 +38,7 @@ The DeepStream side is unchanged from the POT — `metropolis_perception_app -m 
 
 Per-rule clip windows ([`_clip_window`](../../backend/app/vlm_validator.py)):
 
-- `vehicle_collision`: `[iou_peak_t - 2s, +6s]` (8 s, centred on contact frame)
+- `vehicle_collision`: `[iou_peak_t - 2s, +18s]` (20 s, centred on contact frame; widened from 8 s on 2026-05-05 because the original window cut off before the visible aftermath/debris)
 - `ped_impact`: `[t_start_s - 2s, +6s]` (8 s)
 - `stationary_vehicle`: `[t_start_s, +8s]` (8 s)
 - `mass_stop`: `[t_start_s - 1s, +4s]` (5 s)
@@ -46,7 +46,7 @@ Per-rule clip windows ([`_clip_window`](../../backend/app/vlm_validator.py)):
 **VLM providers ([`backend/app/vlm_providers/`](../../backend/app/vlm_providers/)).** Selected via `VLM_PROVIDER=cosmos|openai`. Module-isolated:
 
 - `cosmos.py` — POSTs base64 mp4 to `${COSMOS_URL}/v1/chat/completions`. Model id from `COSMOS_MODEL`.
-- `openai_provider.py` — extracts JPEG frames at `VLM_FRAME_FPS` (default 1) into a `TemporaryDirectory()`, sends them as `image_url` parts to `AsyncOpenAI().chat.completions.create` with `response_format=json_object`. Optional `OPENAI_BASE_URL` for any OAI-compatible endpoint.
+- `openai_provider.py` — extracts JPEG frames at `VLM_FRAME_FPS` (default 1) into a `TemporaryDirectory()`, sends them as `image_url` parts to `AsyncOpenAI().chat.completions.create` at `temperature=0.1`. Optional `OPENAI_BASE_URL` for any OAI-compatible endpoint (Vercel AI Gateway validated 2026-05-05 with `gpt-5.4-mini` and `alibaba/qwen3.5-flash`). The `response_format=json_object` flag was removed 2026-05-05 because the Vercel gateway rejects it as `invalid_request_error` for both models; the shared parser regex-extracts the verdict JSON from raw text and every prompt mandates JSON output, so json-mode is redundant.
 - Shared `prompts.py` and `parsing.py` (verdict parser strips `<think>` blocks, falls back to `("uncertain", 0.5, ...)` on malformed output).
 
 **Endpoints.** `POST /api/uploads` (multipart; saves file, ffprobes, inserts uploads row, enqueues. Response includes `queue_status` / `queue_position`; 503 above queue depth). `GET /api/uploads` (list with `event_count` / `track_count` join). `GET /api/uploads/:id`. `GET /api/uploads/:id/progress` (single SQL aggregate returning `{video_id, duration_s, event_count, incidents_total, vlm_pending, vlm_done, vlm_skipped, vlm_error, vlm_enabled, queue_status, queue_position}`). `DELETE /api/uploads/:id` (cascade drops events). `GET /api/uploads/:id/events?group=tracks|none`. `GET /api/uploads/:id/incidents`. `POST /api/uploads/:id/analyze` (rule pack + VLM if `VLM_ENABLED=true`; returns `incidents_found`). `GET /api/uploads/:id/playback` (FileResponse off disk). `WS /ws/events` (live broadcast of mdx-raw entries). `GET /healthz` and `/health` for Docker healthcheck. `GET /api/incidents/catalog`, `GET /api/incidents/config`, `PUT /api/incidents/config/:rule_id`.
@@ -120,7 +120,7 @@ The progress / queue / provider tests stub `app.db`, `fastapi`, and the `openai`
 ## Known issues
 
 - **DeepStream tracker breaks at impact.** On `91_Country_Club.mp4`, the IOU tracker loses track 10 right at the moment of collision (track ends at t=15.3 s). The same physical car re-enters as track 18 at t=21.5 s — a 6-second tracker void where the rule pack has zero coverage of the immediate post-impact aftermath. Tracks (9, 18) overlap again at t=24.2-24.5 s but don't fire `vehicle_collision` because track 18 ends 1.3 s after the overlap, and the velocity-drop signal from the already-stationary track 9 is near zero. Track-break stitching is the proper upstream fix; out of scope for the demo. Document and move on.
-- **Cosmos-Reason2-2B may be capacity-limited for subtle aftermath.** The (9, 10) collision flag at t=15.1 s on `91_Country_Club` was correctly extracted with the new tight clip window `[13.33s, 21.33s]` — clip contains the impact AND the visible debris aftermath — but Cosmos-2B rejected with 0.95 confidence saying "no collision evidence." Hypothesis: 2B can't read the visual cues. Two paths to test: swap `COSMOS_MODEL=nvidia/cosmos-reason2-8b` (no code change), or `VLM_PROVIDER=openai` for `gpt-5.4-mini`. See [log/2026-05-03-rule-tuning-pickup.md](log/2026-05-03-rule-tuning-pickup.md).
+- ~~Cosmos-Reason2-2B may be capacity-limited for subtle aftermath.~~ **Resolved 2026-05-05** — was clip-window framing, not model capacity. The original 8 s `vehicle_collision` window (`[iou_peak_t - 2, +6]`) ended at t≈21 s — exactly where the visible debris on `91_Country_Club` *began*. Cosmos-2B (yesterday), `gpt-5.4-mini`, and `alibaba/qwen3.5-flash` all rejected the 8 s clip at 0.93-0.95 confidence with near-identical "no debris" reasoning; both providers tested today flip to confirmed at 0.95-0.98 on the widened 20 s window, explicitly citing the debris. Window widened in commit `1fe6291`. See [log/2026-05-05-collision-window-and-vlm-live-validation.md](log/2026-05-05-collision-window-and-vlm-live-validation.md).
 - **DeepStream `-r 2` loops the source.** The perception app re-plays the clip after EOS. Pre-2026-05-03 this corrupted the events table (~47× over-count on busy clips). Fixed by the indexer `ON CONFLICT DO NOTHING` + `events_dedup` unique index. Loop behaviour is preserved (the demo wants continuous detections in the live view); only the duplicate inserts are dropped. If you need to wipe and re-run a clip, `DELETE FROM events WHERE video_id=$1` and re-trigger via re-upload (or re-analyze, which only touches `incidents`).
 - **NVStreamer 3.1.0 discovery bug (upstream, unresolved).** Files served by NVStreamer 3.1.0 lose codec/container metadata; `create_video_pipeline` rejects them; `POST /api/v1/file` returns 404. Workaround in place: `/api/uploads` writes `file:///data/videos/<filename>` directly to `current_stream_url.txt` and DeepStream reads via `uridecodebin`. NVStreamer is still up but unused — could be removed once 3.2.0 lands or the team accepts `file://` permanently.
 - **`libnvds_redis_proto.so` presence is image-dependent.** The vss-rt-cv image ships Kafka as default; verify the Redis proto library is in `/opt/nvidia/deepstream/deepstream/lib/`. Comments in `deepstream/init/ds-start.sh` cover fallbacks (Kafka sidecar, file sink).
@@ -144,8 +144,8 @@ The progress / queue / provider tests stub `app.db`, `fastapi`, and the `openai`
 
 See [`../v1/plan.md`](../v1/plan.md) for the full burn list. Immediate priorities:
 
-1. **Live VLM validation** — first deploy with `VLM_PROVIDER=openai` (or 8B Cosmos), run analyze on `91_Country_Club-1777844748`, inspect verdict + `vlm_model` column. Either confirms 2B was capacity-limited or surfaces a clip/prompt issue.
-2. **Phase 6** — demo acceptance + `docs/demo-script.md`. Stack already validated end-to-end on Brev A6000 + Shadeform A100; just needs the script written and screenshots captured.
-3. **Punch-list cleanup** — fix `vm_setup.sh` ngc CLI install + correct runbook step 7 wording.
+1. **Provider badge in the Why panel** — frontend chip distinguishing Cosmos vs OpenAI verdicts in the incidents UI. Today's two-provider story is now real demo content; surfacing `vlm_model` provenance is a small visual win. Frontend-only, shadcn `Badge`, ~1 hour. Listed in [`../v1/plan.md`](../v1/plan.md).
+2. **Phase 6** — demo acceptance + `docs/demo-script.md`. Stack validated end-to-end on Brev A6000 + Shadeform A100, and as of 2026-05-05 the (9, 10) collision now confirms cleanly via either VLM provider. Just needs the script written and screenshots captured.
+3. **Punch-list cleanup** — fix `vm_setup.sh` ngc CLI install + correct runbook step 7 wording (seeded clips don't auto-start the pipeline; only `POST /api/upload` does).
 4. **Phase 3 leftover** — TRT engine cache as a named volume.
 5. **Architectural debt** — multi-source DeepStream (above).
