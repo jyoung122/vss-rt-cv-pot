@@ -33,7 +33,7 @@ def _clip_window(rule_id: str, t_start_s: float, t_end_s: float, metadata: dict)
         # for older rows that don't have it stored in metadata.
         peak = metadata.get("iou_peak_t")
         center = float(peak) if peak is not None else float(t_start_s)
-        return max(0.0, center - 2.0), 8.0
+        return max(0.0, center - 2.0), 20.0
     if rule_id == "ped_impact":
         return max(0.0, t_start_s - 2.0), 8.0
     if rule_id == "stationary_vehicle":
