@@ -192,7 +192,7 @@ services:
       start_period: 20s
 
   studio:
-    image: supabase/studio:20250106-e00a393
+    image: supabase/studio:2026.04.28-sha-89d08a2
     container_name: supabase-studio
     depends_on:
       db:
