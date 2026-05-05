@@ -1,14 +1,10 @@
 import type { Metadata } from 'next'
-import { Suspense } from 'react'
 import { Inter, JetBrains_Mono, Space_Grotesk } from 'next/font/google'
 import './globals.css'
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — driver.js CSS has no type declaration
 import 'driver.js/dist/driver.css'
 
-import { AppHeader } from '@/components/app-header'
-import { AppSidebar } from '@/components/app-sidebar'
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ThemeProvider } from '@/components/theme-provider'
 
@@ -58,17 +54,7 @@ export default function RootLayout({
       </head>
       <body>
         <ThemeProvider>
-          <TooltipProvider delayDuration={0}>
-            <SidebarProvider className="h-svh">
-              <AppSidebar />
-              <SidebarInset className="min-h-0 overflow-hidden">
-                <Suspense fallback={<div className="min-h-14 shrink-0 border-b" />}>
-                  <AppHeader />
-                </Suspense>
-                <div className="flex min-h-0 flex-1 flex-col">{children}</div>
-              </SidebarInset>
-            </SidebarProvider>
-          </TooltipProvider>
+          <TooltipProvider delayDuration={0}>{children}</TooltipProvider>
         </ThemeProvider>
       </body>
     </html>
