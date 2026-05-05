@@ -42,12 +42,12 @@ export function AppSidebar() {
         <Link href="/" className="flex items-center justify-center px-2 py-3">
           <img
             src="/brand/favicon.png"
-            alt="SSI"
+            alt="AIMS"
             className="size-6 hidden group-data-[collapsible=icon]:block"
           />
           <img
-            src="/brand/ssi-logo.jpg"
-            alt="SSI"
+            src="/brand/aims-logo.png"
+            alt="AIMS"
             className="h-8 w-auto group-data-[collapsible=icon]:hidden"
           />
         </Link>

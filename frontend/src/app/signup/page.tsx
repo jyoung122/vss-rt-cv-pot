@@ -46,7 +46,7 @@ export default function SignupPage() {
       <Card className="w-full max-w-sm border-[var(--border)] bg-[var(--surface-2)] shadow-lg">
         <CardHeader className="pb-4">
           <div className="mb-4 flex justify-center">
-            <img src="/brand/ssi-logo.jpg" alt="SSI" className="h-10 w-auto" />
+            <img src="/brand/aims-logo.png" alt="AIMS" className="h-20 w-auto" />
           </div>
           <CardTitle className="text-center text-[var(--fg-1)]">Create account</CardTitle>
         </CardHeader>
