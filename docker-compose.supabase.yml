@@ -76,15 +76,18 @@ services:
     container_name: supabase-kong
     ports:
       - "${KONG_HTTP_PORT:-8000}:8000"
+    # Kong 2.x doesn't natively interpolate env vars in declarative config —
+    # expand the template via bash before docker-entrypoint hands off to Kong.
+    entrypoint: bash -c 'eval "echo \"$$(cat ~/temp.yml)\"" > /home/kong/kong.yml && /docker-entrypoint.sh kong docker-start'
     environment:
       KONG_DATABASE: "off"
-      KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
+      KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
       KONG_DNS_ORDER: LAST,A,CNAME
       KONG_PLUGINS: request-transformer,cors,key-auth,acl
       SUPABASE_ANON_KEY: ${ANON_KEY}
       SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
     volumes:
-      - ./supabase/kong.yml:/var/lib/kong/kong.yml:ro
+      - ./supabase/kong.yml:/home/kong/temp.yml:ro
     networks:
       - vss-net
     restart: unless-stopped
