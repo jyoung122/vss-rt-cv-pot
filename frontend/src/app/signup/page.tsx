@@ -8,20 +8,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { createClient } from "@/lib/supabase/client"
 
-export default function LoginPage() {
+export default function SignupPage() {
   const router = useRouter()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [err, setErr] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setErr(null)
+    setInfo(null)
     setLoading(true)
 
     const supabase = createClient()
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { data, error } = await supabase.auth.signUp({ email, password })
 
     setLoading(false)
 
@@ -30,8 +32,13 @@ export default function LoginPage() {
       return
     }
 
-    router.push("/")
-    router.refresh()
+    if (data.session) {
+      router.push("/")
+      router.refresh()
+      return
+    }
+
+    setInfo("Check your email to confirm your account, then sign in.")
   }
 
   return (
@@ -41,7 +48,7 @@ export default function LoginPage() {
           <div className="mb-4 flex justify-center">
             <img src="/brand/ssi-logo.jpg" alt="SSI" className="h-10 w-auto" />
           </div>
-          <CardTitle className="text-center text-[var(--fg-1)]">Sign in</CardTitle>
+          <CardTitle className="text-center text-[var(--fg-1)]">Create account</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -56,27 +63,27 @@ export default function LoginPage() {
             />
             <Input
               type="password"
-              placeholder="Password"
-              autoComplete="current-password"
+              placeholder="Password (8+ chars)"
+              autoComplete="new-password"
+              minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
               className="bg-[var(--surface-1)] text-[var(--fg-1)] placeholder:text-[var(--fg-3)] border-[var(--border)]"
             />
-            {err && (
-              <p className="text-sm text-[var(--err-500)]">{err}</p>
-            )}
+            {err && <p className="text-sm text-[var(--err-500)]">{err}</p>}
+            {info && <p className="text-sm text-[var(--ok-500)]">{info}</p>}
             <Button
               type="submit"
               disabled={loading}
               className="bg-[var(--accent-500)] text-white hover:bg-[var(--accent-500)]/90"
             >
-              {loading ? "Signing in…" : "Sign in"}
+              {loading ? "Creating account…" : "Create account"}
             </Button>
             <p className="text-center text-sm text-[var(--fg-3)]">
-              Don&apos;t have an account?{" "}
-              <Link href="/signup" className="text-[var(--accent-500)] hover:underline">
-                Create one
+              Already have an account?{" "}
+              <Link href="/login" className="text-[var(--accent-500)] hover:underline">
+                Sign in
               </Link>
             </p>
           </form>
