@@ -40,6 +40,7 @@ services:
       GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
       GOTRUE_JWT_SECRET: ${JWT_SECRET}
       GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_AUD: authenticated
       GOTRUE_DISABLE_SIGNUP: ${GOTRUE_DISABLE_SIGNUP:-true}
       GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
       # Auto-confirm so operator accounts can be provisioned without SMTP
