@@ -109,15 +109,25 @@ The Next.js dev server proxies `/api/*` and `/ws/*` to `BACKEND_URL` (see `front
 
 ## Auth (Supabase, self-hosted)
 
-The stack includes a trimmed self-hosted Supabase (db + GoTrue + Studio + Kong) defined in `docker-compose.supabase.yml`. It replaces the standalone Postgres and provides email+password auth.
+The stack includes a trimmed self-hosted Supabase (db + GoTrue + Studio + Kong + Storage + MinIO + imgproxy) defined in `docker-compose.supabase.yml`. It replaces the standalone Postgres and provides email+password auth.
 
 ### One-time setup
 
-1. Generate a 32-byte JWT secret and the matching `ANON_KEY` / `SERVICE_ROLE_KEY` JWTs. Quick option: https://supabase.com/docs/guides/self-hosting/docker#generate-api-keys. Paste all three into `.env`.
-2. Bring the stack up: `docker compose -f docker-compose.dev.yml -f docker-compose.supabase.yml up -d`.
-3. Provision an operator account (signups are disabled — `GOTRUE_DISABLE_SIGNUP=true`):
-
+1. Generate secrets and paste into `.env` (real values; `.env` is gitignored — `.env.example` carries placeholders only):
+   - `JWT_SECRET` — 32+ byte HS256 secret. `openssl rand -hex 32`.
+   - `ANON_KEY` and `SERVICE_ROLE_KEY` — JWTs derived from `JWT_SECRET`. Use https://supabase.com/docs/guides/self-hosting/docker#generate-api-keys (or the supabase CLI's `generate-keys`).
+   - `POSTGRES_PASSWORD`, `MINIO_ROOT_PASSWORD`, `S3_PROTOCOL_ACCESS_KEY_ID`, `S3_PROTOCOL_ACCESS_KEY_SECRET` — random strings.
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` — same value as `ANON_KEY`.
+2. Mirror the frontend env: `cp frontend/.env.local.example frontend/.env.local`, then paste `NEXT_PUBLIC_SUPABASE_ANON_KEY` into it. The Next.js dev server only reads `frontend/.env*`, not the repo-root `.env`.
+3. Bring the stack up:
    ```bash
+   docker compose -f docker-compose.dev.yml -f docker-compose.supabase.yml up -d
+   ```
+4. Sign up at `http://localhost:3000/signup`. Email autoconfirm is on (`GOTRUE_MAILER_AUTOCONFIRM=true`), so no SMTP needed in dev. To lock down to admin-provisioned accounts only, set `GOTRUE_DISABLE_SIGNUP=true` in `.env` and provision via the admin curl below.
+
+   Admin-provisioned account (when signups are disabled):
+   ```bash
+   source .env
    curl -X POST http://localhost:8000/auth/v1/admin/users \
      -H "apikey: $SERVICE_ROLE_KEY" \
      -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
@@ -125,13 +135,40 @@ The stack includes a trimmed self-hosted Supabase (db + GoTrue + Studio + Kong) 
      -d '{"email":"you@example.com","password":"<strong>","email_confirm":true}'
    ```
 
-4. Visit `http://localhost:3000` → you'll be redirected to `/login`. Sign in with the credentials above.
+### Troubleshooting
+
+**`supabase-auth` keeps restarting with `password authentication failed for user "supabase_auth_admin"`.** The db volume was initialized when `POSTGRES_PASSWORD` was blank (often a first-run before `.env` was loaded). The init scripts only run on a fresh data dir. Two options:
+
+- *Nuke and rebuild* (loses any data — fine in dev):
+  ```bash
+  docker compose -f docker-compose.dev.yml -f docker-compose.supabase.yml down -v
+  docker compose -f docker-compose.dev.yml -f docker-compose.supabase.yml up -d
+  ```
+- *Patch in place* (preserves data):
+  ```bash
+  source .env
+  docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" supabase-db psql -U supabase_admin -d postgres \
+    -c "ALTER ROLE supabase_auth_admin WITH PASSWORD '$POSTGRES_PASSWORD'; ALTER ROLE supabase_storage_admin WITH PASSWORD '$POSTGRES_PASSWORD';"
+  docker restart supabase-auth supabase-storage
+  ```
+
+**Backend returns 401 with `{"detail":"invalid_token"}` even after a successful login.** The token's `aud` claim is empty. Caused by users created before `GOTRUE_JWT_AUD=authenticated` was set. Fix the existing rows once:
+
+```bash
+source .env
+docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" supabase-db psql -U postgres -d postgres \
+  -c "UPDATE auth.users SET aud='authenticated', role='authenticated' WHERE aud='';"
+```
+Then sign out and back in to mint a fresh token.
+
+**Kong consumer keys logged as the literal string `${SUPABASE_ANON_KEY}`.** Kong 2.x doesn't natively interpolate env vars in declarative config; the bash entrypoint in the `kong` service expands `~/temp.yml` → `/home/kong/kong.yml` via `eval echo` before docker-entrypoint hands off. Single-quoted YAML scalars (`_format_version: '1.1'`) are required — double quotes break the eval.
 
 ### How it fits together
 
-- Frontend (`@supabase/ssr`) stores the session in an httpOnly cookie. The root `middleware.ts` redirects unauthenticated users to `/login` and stamps `Authorization: Bearer <jwt>` onto outbound `/api/*` and `/ws/*` requests before Next.js rewrites them to the backend.
-- Backend (`backend/app/auth.py`) verifies the HS256 JWT with `python-jose` against `SUPABASE_JWT_SECRET`; every router include carries `Depends(require_user)` except `events_router` (websocket auth deferred) and `/healthz`.
-- Studio is at `http://localhost:8000` (Kong gateway).
+- **Frontend** (`@supabase/ssr`) stores the session in an httpOnly cookie. The root `middleware.ts` redirects unauthenticated users to `/login` (or `/signup`) and stamps `Authorization: Bearer <jwt>` onto outbound `/api/*` and `/ws/*` requests before Next.js rewrites them to the backend. Pages live under the `(app)` route group with the sidebar layout; `/login` and `/signup` render in the bare root layout.
+- **Backend** (`backend/app/auth.py`) verifies the HS256 JWT with `python-jose` against `SUPABASE_JWT_SECRET`, requiring `aud="authenticated"`. Every router include carries `Depends(require_user)` except `events_router` (websocket auth deferred — `TODO(auth)` in `main.py`) and the open `/healthz`.
+- **Kong** at `http://localhost:8000` is the gateway: `/auth/v1/*` → GoTrue, `/storage/v1/*` → storage-api, `/pg/*` → postgres-meta. Studio dashboard at the same URL.
+- **MinIO console** at `http://localhost:9001` — login with `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`.
 
 ---
 

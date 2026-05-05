@@ -201,7 +201,7 @@ First-run guided walkthrough so a stakeholder can self-serve the demo: Dashboard
 - ⏸ Per-clip thumbnails (`ffprobe -ss` frame extraction)
 - ⏸ NvDCF tracker swap (currently IOU) — would reduce track-ID swap false positives in the rule pack
 - ⏸ S3/MinIO for video bytes (currently local disk — fine for single-VM demo)
-- 🚧 Auth — **in progress (branch `feat/supabase-auth`, started 2026-05-05)**: self-hosted Supabase stack (db + GoTrue + Studio + Kong) replaces the standalone postgres. Single-tenant email+password; FastAPI verifies HS256 JWT via `python-jose`; Next.js middleware attaches `Authorization` to `/api/*` proxy requests. Plan: `docs/v1/phases/supabase-auth.md`.
+- ✅ Auth — **shipped on `feat/supabase-auth` (2026-05-05)**: self-hosted Supabase stack (db + GoTrue + Studio + Kong + Storage + MinIO + imgproxy) replaced the standalone postgres. Email+password auth with `/login` + `/signup` pages, FastAPI verifies HS256 JWT (`aud=authenticated`) via `python-jose`, Next.js middleware attaches `Authorization` to `/api/*` proxy requests. WebSocket auth (`/ws/events`) deferred. Plan: `docs/v1/phases/supabase-auth.md`. Bring-up gotchas in README "Troubleshooting".
 - ⏸ Live (non-batch) incident detection on RTSP streams — current design is per-upload batch
 - ⏸ GDINO open-vocab detection driven by the upload-page prompt textarea — v1.5
 - ⏸ Operator-facing `/status` UI for "Did my upload process? Why did it fail?" — separate from support/dev logs

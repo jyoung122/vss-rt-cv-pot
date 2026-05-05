@@ -1,5 +1,17 @@
 # Swap Postgres → self-hosted Supabase, add auth
 
+## Status: shipped (branch `feat/supabase-auth`, 2026-05-05)
+
+Final stack ended up larger than planned — added Storage + MinIO + imgproxy mid-flight per user request. `/signup` page added on top of `/login`. Frontend pages moved into a `(app)` route group so `/login` and `/signup` render in a bare root layout (no sidebar shell).
+
+### Gotchas discovered during bring-up — captured in `README.md` Troubleshooting
+
+1. **Kong 2.x doesn't interpolate `${VAR}` in declarative config.** Need a bash entrypoint that `eval echo`s the file. YAML scalars must use single quotes (`_format_version: '1.1'`) or the eval breaks.
+2. **`supabase-db` only runs init scripts on a fresh data dir.** A first `up` with empty `POSTGRES_PASSWORD` (env vars not loaded) creates `supabase_auth_admin` with empty password forever; `down -v` or in-place `ALTER ROLE` is the fix.
+3. **`GOTRUE_JWT_AUD` must be set explicitly to `authenticated`.** Without it, issued tokens carry `aud=""` and the backend's audience check rejects them. Existing rows in `auth.users` need a one-time `UPDATE auth.users SET aud='authenticated' WHERE aud=''`.
+4. **Frontend env vars live in `frontend/.env.local`, not the repo-root `.env`.** Next.js dev server only reads its own dir's env files.
+5. **WebSocket auth is deferred.** `events_router` (the `/ws/events` route) is intentionally left open — browsers can't send `Authorization` on WS upgrade. `TODO(auth)` in `main.py`. Future: query-param token + server-side handshake.
+
 ## Context
 
 Today AIMS runs a vanilla `postgres:16-alpine` container and has **no auth at all** — every route on the FastAPI backend and Next.js frontend is public. `docs/v1/plan.md` already locks v1.5 auth to "self-hosted Supabase Auth (OSS GoTrue)" (commit `1cdd974`, 2026-05-05). This change brings that forward: replace the bare Postgres container with the full self-hosted Supabase stack so we get GoTrue (auth) and Studio (ops UI) alongside Postgres in one drop-in compose, then wire single-tenant email+password auth through the frontend and verify Supabase-issued JWTs in FastAPI.
