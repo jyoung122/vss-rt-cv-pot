@@ -92,7 +92,7 @@ First run takes 2–5 minutes — the TRT engine is built once and cached in `da
 For frontend / API iteration when you don't need DeepStream running. Uploads land on disk and show in `/api/uploads`, but no real detection events flow into Redis — use the synthetic publisher (below) to populate them.
 
 ```bash
-docker compose -f docker-compose.dev.yml up
+docker compose -f docker-compose.dev.yml -f docker-compose.supabase.yml up
 ```
 
 For fast HMR, run the frontend separately:
@@ -104,6 +104,34 @@ npm run dev
 ```
 
 The Next.js dev server proxies `/api/*` and `/ws/*` to `BACKEND_URL` (see `frontend/next.config.js`).
+
+---
+
+## Auth (Supabase, self-hosted)
+
+The stack includes a trimmed self-hosted Supabase (db + GoTrue + Studio + Kong) defined in `docker-compose.supabase.yml`. It replaces the standalone Postgres and provides email+password auth.
+
+### One-time setup
+
+1. Generate a 32-byte JWT secret and the matching `ANON_KEY` / `SERVICE_ROLE_KEY` JWTs. Quick option: https://supabase.com/docs/guides/self-hosting/docker#generate-api-keys. Paste all three into `.env`.
+2. Bring the stack up: `docker compose -f docker-compose.dev.yml -f docker-compose.supabase.yml up -d`.
+3. Provision an operator account (signups are disabled — `GOTRUE_DISABLE_SIGNUP=true`):
+
+   ```bash
+   curl -X POST http://localhost:8000/auth/v1/admin/users \
+     -H "apikey: $SERVICE_ROLE_KEY" \
+     -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"email":"you@example.com","password":"<strong>","email_confirm":true}'
+   ```
+
+4. Visit `http://localhost:3000` → you'll be redirected to `/login`. Sign in with the credentials above.
+
+### How it fits together
+
+- Frontend (`@supabase/ssr`) stores the session in an httpOnly cookie. The root `middleware.ts` redirects unauthenticated users to `/login` and stamps `Authorization: Bearer <jwt>` onto outbound `/api/*` and `/ws/*` requests before Next.js rewrites them to the backend.
+- Backend (`backend/app/auth.py`) verifies the HS256 JWT with `python-jose` against `SUPABASE_JWT_SECRET`; every router include carries `Depends(require_user)` except `events_router` (websocket auth deferred) and `/healthz`.
+- Studio is at `http://localhost:8000` (Kong gateway).
 
 ---
 
