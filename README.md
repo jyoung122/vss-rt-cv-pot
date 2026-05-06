@@ -313,6 +313,48 @@ Object string format: `track_id | x1 | y1 | x2 | y2 | class | # | … | confiden
 
 ---
 
+## Knowledge Base & CMS (Payload)
+
+Payload CMS v3 runs inside the `frontend/` Next.js app and powers two public routes:
+
+- **`/docs`** — Knowledge Base index and article pages (`/docs/[slug]`).
+- **`/[...slug]`** — Landing pages built from composable blocks (Hero, FeatureGrid, CTA, etc.).
+- **`/admin`** — Payload admin UI for editing content. Payload auth is separate from Supabase — end users browsing `/docs` and the landing pages do **not** need a Supabase session.
+
+### Required env vars
+
+Add to your `.env` (see `.env.example` for placeholders):
+
+```bash
+DATABASE_URI=postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/postgres?search_path=payload
+PAYLOAD_SECRET=<32-char random string — openssl rand -hex 32>
+PAYLOAD_S3_BUCKET=payload-media
+```
+
+`S3_PROTOCOL_ACCESS_KEY_ID`, `S3_PROTOCOL_ACCESS_KEY_SECRET`, `STORAGE_S3_ENDPOINT`, and `REGION` are also used by Payload's media storage (shared with the Supabase MinIO instance).
+
+### One-time setup
+
+```bash
+# 1. Start the Supabase stack (Postgres + MinIO must be running)
+docker compose -f docker-compose.dev.yml -f docker-compose.supabase.yml up -d
+
+# 2. Create the Payload media bucket in MinIO (idempotent — safe to re-run)
+bash scripts/create-payload-bucket.sh
+
+# 3. Visit http://localhost:3000/admin and follow the prompt to create the first Payload admin user
+```
+
+### Seeding starter content
+
+```bash
+cd frontend && npm run seed   # upserts 4 categories, 8 articles, and 1 landing page — idempotent
+```
+
+Re-run at any time without creating duplicates. Existing records are updated in place.
+
+---
+
 ## Known issues
 
 **TRT engine compile (~3.5 min on first run, ~5 s warm).** Normal — RT-DETR ONNX compiles to a TRT FP16 engine on first boot and persists in `data/models/`. Watch `docker compose logs -f vss-rt-cv` for "Starting DeepStream" before uploading. A future Phase 3 item pins the cache to a named volume to survive container rebuilds.
