@@ -135,10 +135,10 @@ export function AppSidebar() {
                   tooltip="Knowledge"
                   className="group-data-[collapsible=icon]:justify-center !bg-transparent hover:!bg-transparent hover:!text-[var(--accent-500)]"
                 >
-                  <a href="/docs" target="_blank" rel="noopener noreferrer">
+                  <Link href="/docs">
                     <BookOpen />
                     <span>Knowledge</span>
-                  </a>
+                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
