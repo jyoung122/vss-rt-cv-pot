@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { getPayload } from 'payload'
 import { RichText } from '@payloadcms/richtext-lexical/react'
-import configPromise from '../../../../payload/payload.config'
+import configPromise from '@/payload/payload.config'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 
@@ -70,7 +70,6 @@ export default async function ArticleDetailPage({
       ? article.category
       : null
 
-  // Fetch siblings in same category for prev/next
   let prevArticle: ArticleDoc | null = null
   let nextArticle: ArticleDoc | null = null
 
@@ -96,7 +95,6 @@ export default async function ArticleDetailPage({
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-12">
-      {/* Breadcrumb */}
       <nav className="mb-8 flex items-center gap-2 text-sm text-[var(--fg-3)]">
         <Link href="/docs" className="hover:text-[var(--accent-500)] transition-colors">
           Knowledge Base
@@ -111,7 +109,6 @@ export default async function ArticleDetailPage({
         <span className="text-[var(--fg-1)] font-medium truncate">{article.title}</span>
       </nav>
 
-      {/* Article */}
       <article>
         <h1 className="text-3xl font-semibold text-[var(--fg-1)] mb-4">{article.title}</h1>
         {article.excerpt && (
@@ -126,7 +123,6 @@ export default async function ArticleDetailPage({
         )}
       </article>
 
-      {/* Prev / Next */}
       {(prevArticle || nextArticle) && (
         <div className="mt-12 pt-8 border-t border-[var(--border)] flex items-center justify-between gap-4">
           {prevArticle ? (
