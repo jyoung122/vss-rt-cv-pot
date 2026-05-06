@@ -353,6 +353,23 @@ cd frontend && npm run seed   # upserts 4 categories, 8 articles, and 1 landing 
 
 Re-run at any time without creating duplicates. Existing records are updated in place.
 
+### Troubleshooting
+
+**`getaddrinfo EAI_AGAIN db` from `npm run dev` or `npm run seed`.** The repo-root `DATABASE_URI` uses `@db:5432` (compose service DNS). When running Next.js or the seed script on the host, `db` doesn't resolve. Set `DATABASE_URI` in `frontend/.env.local` to `postgresql://postgres:<literal-POSTGRES_PASSWORD>@localhost:5432/postgres?search_path=payload`. Next.js dotenv does not expand `${POSTGRES_PASSWORD}` across files — paste the literal value.
+
+**`Cannot destructure property 'loadEnvConfig' of 'import_env.default' as it is undefined`.** Payload v3.84's `dist/bin/loadEnv.js` does `import nextEnvImport from '@next/env'`, but `@next/env` is a CJS module without a `default` export — fails under Node's current ESM interop. Patch (will be wiped by `npm install`):
+
+```bash
+sed -i "s/import nextEnvImport from '@next\\/env';/import * as nextEnvImport from '@next\\/env';/" \
+  frontend/node_modules/.pnpm/payload@*/node_modules/payload/dist/bin/loadEnv.js
+```
+
+Namespace import (`import * as`) works under both tsx and native Node ESM. A named import (`import { loadEnvConfig }`) parses fine under tsx but throws `SyntaxError: does not provide an export named 'loadEnvConfig'` under Node ESM, because `@next/env`'s CJS bundle assembles `module.exports` dynamically and Node's static analyzer can't see the named exports.
+
+For a durable fix, pin via `pnpm patch` or bump Payload past v3.84 once a release with the fix lands.
+
+**`ValidationError: Excerpt` during seed.** Some seeded excerpts run to 344 chars; the `excerpt` field on `Articles.ts` is capped at 600 (was 280). If you tighten the cap, trim `frontend/src/payload/seed/articles.ts` accordingly.
+
 ---
 
 ## Known issues

@@ -61,7 +61,7 @@ export const Articles: CollectionConfig = {
     {
       name: 'excerpt',
       type: 'textarea',
-      maxLength: 280,
+      maxLength: 600,
     },
     {
       name: 'body',
