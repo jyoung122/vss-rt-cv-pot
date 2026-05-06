@@ -13,6 +13,8 @@ export async function POST(req: Request) {
   if (contentType) headers.set('content-type', contentType)
   const contentLength = req.headers.get('content-length')
   if (contentLength) headers.set('content-length', contentLength)
+  const authorization = req.headers.get('authorization')
+  if (authorization) headers.set('authorization', authorization)
 
   log.info('upload.proxy.start', { content_length: contentLength })
   const response = await fetch(`${BACKEND_URL}/api/upload`, {

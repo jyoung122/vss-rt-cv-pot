@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 
 from app.db import get_pool
 import app.upload_queue as upload_queue
@@ -17,8 +17,10 @@ ALLOWED_SUFFIXES = [".mp4", ".mkv"]
 
 
 def _upload_record(row, event_count: int, track_count: int) -> dict:
+    vid = row["video_id"]
+    thumb = Path(DATA_DIR) / "thumbs" / f"{vid}.jpg"
     return {
-        "video_id": row["video_id"],
+        "video_id": vid,
         "original_filename": row["original_filename"],
         "prompt": row["prompt"],
         "duration_s": row["duration_s"],
@@ -27,7 +29,8 @@ def _upload_record(row, event_count: int, track_count: int) -> dict:
         "fps": row["fps"],
         "size_bytes": row["size_bytes"],
         "uploaded_at": row["uploaded_at"].isoformat(),
-        "playback_url": f"/api/video/{row['video_id']}",
+        "playback_url": f"/api/video/{vid}",
+        "thumbnail_url": f"/api/thumbs/{vid}" if thumb.exists() else None,
         "event_count": event_count,
         "track_count": track_count,
     }
@@ -83,6 +86,14 @@ async def get_upload(video_id: str):
     return _upload_record(row, row["event_count"], row["track_count"])
 
 
+@router.get("/api/thumbs/{video_id}")
+async def get_thumbnail(video_id: str):
+    thumb = Path(DATA_DIR) / "thumbs" / f"{video_id}.jpg"
+    if not thumb.exists():
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    return FileResponse(str(thumb), media_type="image/jpeg")
+
+
 @router.delete("/api/uploads/{video_id}")
 async def delete_upload(video_id: str):
     pool = get_pool()
@@ -91,11 +102,12 @@ async def delete_upload(video_id: str):
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Upload not found")
 
-    # Remove the video file (tolerate already-gone)
+    # Remove the video file and thumbnail (tolerate already-gone)
     video_dir = Path(DATA_DIR) / "videos"
     for suffix in ALLOWED_SUFFIXES:
         candidate = video_dir / f"{video_id}{suffix}"
         candidate.unlink(missing_ok=True)
+    (Path(DATA_DIR) / "thumbs" / f"{video_id}.jpg").unlink(missing_ok=True)
 
     return Response(status_code=204)
 

@@ -21,9 +21,9 @@ FastAPI application that is the central hub of the AIMS pipeline. It handles vid
 |---|---|
 | `main.py` | Routes, lifespan (starts event indexer + upload queue worker), RequestIdMiddleware |
 | `db.py` | asyncpg pool; runs `schema.sql` at startup |
-| `schema.sql` | DDL for `uploads`, `events`, `incidents`, `rule_config` tables |
+| `schema.sql` | DDL for `uploads`, `events`, `incidents`, `rule_config` tables. `uploads.dss_status` (`pending`/`processing`/`completed`/`failed`) records whether vss-rt-cv finished processing. |
 | `upload.py` | ffprobe metadata, INSERT uploads, **enqueues** the job (no longer touches Redis/file/docker directly) |
-| `upload_queue.py` | In-process `asyncio.Queue` + serial worker. Owns `current_video_id`, `current_stream_url.txt`, and `vss-rt-cv` restart. Caps depth at `UPLOAD_QUEUE_MAX_DEPTH` (default 10) → 503. |
+| `upload_queue.py` | In-process `asyncio.Queue` + serial worker. Owns `current_video_id`, `current_stream_url.txt`, and `vss-rt-cv` restart. Writes `dss_status` transitions: `processing` after container restart, `completed` on plateau, `failed` on hard timeout or exception. Caps depth at `UPLOAD_QUEUE_MAX_DEPTH` (default 10) → 503. |
 | `uploads_list.py` | `GET/DELETE /api/uploads`, `GET /api/uploads/:id/events`, `GET /api/uploads/:id/progress` (queue + ingest + VLM aggregate) |
 | `event_indexer.py` | XREADGROUP consumer-group drain of `mdx-raw` → `events` rows |
 | `incidents.py` | Incident REST endpoints + catalog |
@@ -78,7 +78,7 @@ Required env vars (see [`.env.example`](../../../.env.example)):
 | `GET` | `/api/uploads/:id/events` | Events for an upload (`?group=tracks\|none`) |
 | `GET` | `/api/uploads/:id/progress` | Aggregate progress: `event_count`, VLM counts, `queue_status`, `queue_position`, `vlm_enabled` |
 | `GET` | `/api/uploads/:id/incidents` | Incidents for an upload |
-| `POST` | `/api/uploads/:id/analyze` | Re-run rule pack + VLM (if enabled) |
+| `POST` | `/api/uploads/:id/analyze` | Re-run rule pack + VLM (if enabled). Returns 503 if `dss_status != 'completed'` (pipeline unavailable), 422 if pipeline completed but no events were detected, 200 with `{"incidents_found": N}` on success. |
 | `GET` | `/api/uploads/:id/playback` | Stream video file |
 | `GET` | `/api/incidents/catalog` | Cross-upload incident list |
 | `GET` | `/api/incidents/config` | All rule thresholds |

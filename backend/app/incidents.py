@@ -458,12 +458,19 @@ async def analyze_upload(video_id: str):
             log.warning("analyze.upload.not_found")
             raise HTTPException(status_code=404, detail="Upload not found")
 
-        event_count = await pool.fetchval(
-            "SELECT COUNT(*) FROM events WHERE video_id=$1", video_id
+        row = await pool.fetchrow(
+            "SELECT dss_status, (SELECT COUNT(*) FROM events WHERE video_id=$1) AS event_count FROM uploads WHERE video_id=$1",
+            video_id,
         )
+        dss_status = row["dss_status"] if row else "pending"
+        event_count = row["event_count"] if row else 0
+
         if not event_count:
+            if dss_status != "completed":
+                log.warning("analyze.pipeline.unavailable", extra={"dss_status": dss_status})
+                raise HTTPException(status_code=503, detail="Detection pipeline did not complete")
             log.warning("analyze.upload.no_events")
-            raise HTTPException(status_code=422, detail="Upload has no events yet")
+            raise HTTPException(status_code=422, detail="No events detected")
 
         count = await run_incident_detection(video_id, pool)
 

@@ -37,6 +37,16 @@ The indexer has no EOS hook ([`backend/app/event_indexer.py:10-12`](../../backen
 - `vlm_enabled === false`
 - All incident rows return `vlm_status='skipped'`
 
+**Analyze error codes** (`POST /api/uploads/:id/analyze`):
+
+| Status | Meaning | Frontend treatment |
+|---|---|---|
+| `200` | Rule pack ran; `incidents_found > 0` | Enter VLM stage |
+| `422` | Pipeline completed but found no events — legitimate empty video | Silent done (0 incidents) |
+| `503` | `dss_status != 'completed'` — vss-rt-cv did not finish processing | Error pill: "Detection pipeline unavailable" |
+
+`dss_status` is written to the `uploads` table by the queue worker: `pending` → `processing` (after container restart) → `completed` (plateau reached) or `failed` (hard timeout or exception). A 422 is only returned when `dss_status = 'completed'` — meaning DeepStream ran to completion but the video had no detectable objects.
+
 ---
 
 ## Plateau heuristic

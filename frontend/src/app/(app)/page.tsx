@@ -1,18 +1,13 @@
 'use client'
 
 import React, { useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   AlertTriangle,
-  ArrowUpRight,
-  FileVideo,
-  Gauge,
+  CalendarDays,
+  Download,
   MapPinned,
   ShieldCheck,
-  Sparkles,
-  Upload,
-  Video,
 } from 'lucide-react'
 
 import {
@@ -22,6 +17,7 @@ import {
   formatUploaded,
 } from '@/lib/uploads'
 import { hasSeenTour, resumeTourIfNeeded } from '@/lib/tour'
+import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -42,6 +38,15 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 
 const DEMO_NOTICE_KEY = 'aims:demo-notice:v1'
+
+const RANGES = [
+  { id: '7d', label: '7 days' },
+  { id: '30d', label: '30 days' },
+  { id: '90d', label: 'Quarter' },
+  { id: 'ytd', label: 'YTD' },
+] as const
+
+type RangeId = (typeof RANGES)[number]['id']
 
 const KPI_TRENDS = {
   events: [12, 18, 15, 22, 19, 28, 24, 31, 27, 34, 29, 38],
@@ -67,20 +72,7 @@ const CORRIDOR_BREAKDOWN = [
   { label: 'Other', value: 133, color: 'var(--ink-400)' },
 ]
 
-const SEVERITY_BREAKDOWN = [
-  { label: 'Critical', value: 47, color: 'var(--danger-500)' },
-  { label: 'High', value: 218, color: 'var(--warn-500)' },
-  { label: 'Medium', value: 549, color: 'var(--accent-400)' },
-  { label: 'Low', value: 433, color: 'var(--ink-400)' },
-]
 
-const ACTIVE_RULES = [
-  { name: 'Stopped vehicle on shoulder', triggers: 412, fp: 1.8, status: 'mock live' },
-  { name: 'Debris or cargo loss', triggers: 289, fp: 3.4, status: 'mock live' },
-  { name: 'Wrong-way movement', triggers: 47, fp: 0.4, status: 'mock live' },
-  { name: 'Standing water on roadway', triggers: 138, fp: 2.1, status: 'mock live' },
-  { name: 'Signal phase anomaly', triggers: 177, fp: 5.2, status: 'tuning' },
-]
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -90,6 +82,7 @@ export default function DashboardPage() {
   const [incidentCount, setIncidentCount] = useState<number | null>(null)
   const [vlmConfirmedCount, setVlmConfirmedCount] = useState<number | null>(null)
   const [incidentsLoading, setIncidentsLoading] = useState(true)
+  const [range, setRange] = useState<RangeId>('30d')
   const [demoNoticeOpen, setDemoNoticeOpen] = useState(false)
 
   useEffect(() => {
@@ -169,7 +162,6 @@ export default function DashboardPage() {
   }, [uploads, loading])
 
   const stats = useMemo(() => {
-    const eventCount = uploads.reduce((sum, item) => sum + item.event_count, 0)
     const trackCount = uploads.reduce((sum, item) => sum + item.track_count, 0)
     const totalDuration = uploads.reduce(
       (sum, item) => sum + (item.duration_s ?? 0),
@@ -178,14 +170,11 @@ export default function DashboardPage() {
     const latestUpload = uploads[0] ?? null
 
     return {
-      eventCount,
       trackCount,
       totalDuration,
       latestUpload,
     }
   }, [uploads])
-
-  const latestUploads = uploads.slice(0, 5)
 
   function dismissDemoNotice() {
     localStorage.setItem(DEMO_NOTICE_KEY, '1')
@@ -197,19 +186,15 @@ export default function DashboardPage() {
       <DemoNoticeDialog open={demoNoticeOpen} onDismiss={dismissDemoNotice} />
       <div className="flex-1 overflow-auto p-5">
         <div className="w-full">
-          <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--accent-400)]">
-                City operations · April 2026
-              </div>
-              <h1 className="mt-1 font-display text-[28px] font-semibold leading-tight tracking-tight text-foreground">
-                Operations overview
-              </h1>
-              <p className="mt-1 max-w-2xl text-[13px] text-muted-foreground">
-                Upload-backed detection metrics with demo analytics placeholders
-                for the v1 reporting surface.
-              </p>
-            </div>
+          {error && (
+            <Card className="mb-4 border-[color:var(--danger-500)]/35 bg-destructive/10">
+              <CardContent className="py-3 text-sm text-destructive">
+                Dashboard metrics could not load: {error}
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <Badge
                 variant="outline"
@@ -226,69 +211,114 @@ export default function DashboardPage() {
                   : 'No uploads yet'}
               </span>
             </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div
+                className="flex rounded-[3px] border p-0.5"
+                style={{ background: 'var(--surface-2)' }}
+              >
+                {RANGES.map((item) => (
+                  <Button
+                    key={item.id}
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setRange(item.id)}
+                    className={cn(
+                      'h-[26px] rounded-[3px] px-2.5 text-[11px]',
+                      range === item.id
+                        ? 'text-foreground'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                    style={{
+                      background:
+                        range === item.id ? 'var(--surface-3)' : 'transparent',
+                    }}
+                  >
+                    {item.label}
+                  </Button>
+                ))}
+              </div>
+              <Button variant="outline" size="sm" disabled className="gap-1.5">
+                <CalendarDays className="size-3.5" />
+                Apr 1 - Apr 30
+              </Button>
+              <Button variant="outline" size="sm" disabled className="gap-1.5">
+                <Download className="size-3.5" />
+                Export PDF
+              </Button>
+            </div>
           </div>
 
-          {error && (
-            <Card className="mb-4 border-[color:var(--danger-500)]/35 bg-destructive/10">
-              <CardContent className="py-3 text-sm text-destructive">
-                Dashboard metrics could not load: {error}
-              </CardContent>
-            </Card>
-          )}
-
-          <div data-tour="kpi-grid" className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+          <div data-tour="kpi-grid" className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="relative">
+              <KpiCard
+                label="Active Cameras"
+                value={loading ? null : formatDuration(stats.totalDuration)}
+                delta={`${uploads.length.toLocaleString()} uploads`}
+                trend={KPI_TRENDS.cameras}
+                tone="neutral"
+                source=""
+              />
+              <Badge
+                variant="outline"
+                className="absolute right-2 top-2 border-[color:var(--warn-500)]/40 bg-[color:var(--warn-500)]/10 text-[color:var(--warn-500)] text-[10px]"
+              >
+                Coming Soon
+              </Badge>
+            </div>
+            <div className="relative">
+              <KpiCard
+                label="Avg Detection Time"
+                value="3:42"
+                delta="-24%"
+                trend={KPI_TRENDS.response}
+                tone="neutral"
+                source=""
+              />
+              <Badge
+                variant="outline"
+                className="absolute right-2 top-2 border-[color:var(--warn-500)]/40 bg-[color:var(--warn-500)]/10 text-[color:var(--warn-500)] text-[10px]"
+              >
+                Coming Soon
+              </Badge>
+            </div>
             <KpiCard
-              label="Events indexed"
-              value={loading ? null : stats.eventCount.toLocaleString()}
-              delta={`${stats.trackCount.toLocaleString()} tracks`}
-              trend={KPI_TRENDS.events}
-              tone="accent"
-              source="Uploads API"
-            />
-            <KpiCard
-              label="Analyzed footage"
-              value={loading ? null : formatDuration(stats.totalDuration)}
-              delta={`${uploads.length.toLocaleString()} uploads`}
-              trend={KPI_TRENDS.cameras}
-              tone="neutral"
-              source="Uploads API"
-            />
-            <KpiCard
-              label="Rule-detected"
+              label="Incidents Detected"
               value={incidentsLoading ? null : (incidentCount ?? '—').toString()}
               delta="incidents"
               trend={KPI_TRENDS.falsePositive}
               tone="warn"
-              source="Uploads API"
+              source=""
               icon={<AlertTriangle className="size-3.5" strokeWidth={1.75} />}
             />
             <div data-tour="kpi-vlm">
               <KpiCard
-                label="VLM-confirmed"
+                label="Ai-confirmed"
                 value={incidentsLoading ? null : (vlmConfirmedCount ?? '—').toString()}
-                delta="by Cosmos-Reason2"
+                delta="Confirmed Incidents"
                 trend={KPI_TRENDS.falsePositive}
                 tone="ok"
-                source="Uploads API"
+                source=""
                 icon={<ShieldCheck className="size-3.5" strokeWidth={1.75} />}
               />
             </div>
-            <KpiCard
-              label="Avg. response time"
-              value="3:42"
-              delta="-24%"
-              trend={KPI_TRENDS.response}
-              tone="ok"
-              source="Demo data"
-            />
+            <div className="relative">
             <KpiCard
               label="False positive rate"
               value="2.4%"
               delta="-1.1pp"
               trend={KPI_TRENDS.falsePositive}
-              tone="ok"
-              source="Demo data"
+              tone="neutral"
+              source=""
             />
+                          <Badge
+                variant="outline"
+                className="absolute right-2 top-2 border-[color:var(--warn-500)]/40 bg-[color:var(--warn-500)]/10 text-[color:var(--warn-500)] text-[10px]"
+              >
+                Coming Soon
+              </Badge>
+              </div>
+            
           </div>
 
           <div data-tour="trend-map" className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-[1.45fr_1fr]">
@@ -298,22 +328,20 @@ export default function DashboardPage() {
 
           <div data-tour="breakdown" className="mb-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
             <BreakdownCard title="By event type" items={EVENT_BREAKDOWN} />
-            <BreakdownCard title="By corridor" items={CORRIDOR_BREAKDOWN} />
-            <BreakdownCard title="By severity" items={SEVERITY_BREAKDOWN} />
+            <div className="relative">
+              <BreakdownCard title="By corridor" items={CORRIDOR_BREAKDOWN} />
+              <Badge
+                variant="outline"
+                className="absolute right-2 top-2 border-[color:var(--warn-500)]/40 bg-[color:var(--warn-500)]/10 text-[color:var(--warn-500)] text-[10px]"
+              >
+                Coming Soon
+              </Badge>
+            </div>
+            <SeverityBreakdownCard />
           </div>
 
-          <div data-tour="heatmap-rules" className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-[2fr_1fr]">
+          <div data-tour="heatmap-rules" className="mb-6">
             <HeatmapCard />
-            <RulesCard />
-          </div>
-
-          <div data-tour="recent-uploads" className="mb-6 grid grid-cols-1 gap-3 xl:grid-cols-[1.1fr_1fr]">
-            <RecentUploadsCard
-              uploads={latestUploads}
-              loading={loading}
-              totalUploads={uploads.length}
-            />
-            <OutcomesCard />
           </div>
         </div>
       </div>
@@ -408,53 +436,96 @@ function Sparkline({ trend, color }: { trend: number[]; color: string }) {
   )
 }
 
+const RULE_SERIES = [
+  { name: 'Vehicle Collision',  key: 'vehicle_collision',  color: 'var(--danger-500)' },
+  { name: 'Pedestrian Impact',  key: 'ped_impact',         color: 'var(--warn-500)' },
+  { name: 'Stationary Vehicle', key: 'stationary_vehicle', color: 'var(--accent-500)' },
+  { name: 'Mass Stop',          key: 'mass_stop',          color: 'var(--accent-300)' },
+]
+
 function TrendCard() {
-  const days = 30
-  const series = [
-    {
-      name: 'Vehicles',
-      data: Array.from({ length: days }, (_, i) => 12 + Math.sin(i / 3) * 4 + (i % 5)),
-      color: 'var(--accent-500)',
-    },
-    {
-      name: 'Pedestrians',
-      data: Array.from({ length: days }, (_, i) => 8 + Math.cos(i / 4) * 3 + (i % 4)),
-      color: 'var(--accent-400)',
-    },
-    {
-      name: 'Bicycles',
-      data: Array.from({ length: days }, (_, i) => 5 + Math.sin(i / 5 + 2) * 2 + (i % 3)),
-      color: 'var(--warn-500)',
-    },
-  ]
-  const all = series.flatMap((item) => item.data)
-  const max = Math.max(...all)
+  const DAYS = 30
+  const [rawIncidents, setRawIncidents] = useState<{ created_at: string; rule_id: string; vlm_verdict: string | null }[]>([])
+  const [isDemo, setIsDemo] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/incidents/feed?limit=500', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d: { incidents: { created_at: string; rule_id: string; vlm_verdict: string | null }[] }) => {
+        const confirmed = d.incidents.filter((i) => i.vlm_verdict === 'confirmed')
+        if (confirmed.length > 0) {
+          setRawIncidents(confirmed)
+          setIsDemo(false)
+        } else {
+          setIsDemo(true)
+        }
+      })
+      .catch(() => setIsDemo(true))
+  }, [])
+
+  const dateLabels = Array.from({ length: DAYS }, (_, i) => {
+    const d = new Date()
+    d.setDate(d.getDate() - (DAYS - 1 - i))
+    return d.toISOString().slice(0, 10)
+  })
+
+  const DEMO_SERIES = RULE_SERIES.map((s, si) => ({
+    ...s,
+    data: Array.from({ length: DAYS }, (_, i) =>
+      Math.max(0, [3, 8, 5, 4][si] + Math.sin(i / (3 + si) + si) * (2 + si) + (i % (3 + si))),
+    ),
+  }))
+
+  const liveCounts: Record<string, Record<string, number>> = Object.fromEntries(
+    RULE_SERIES.map((s) => [s.key, {}])
+  )
+  for (const inc of rawIncidents) {
+    const day = inc.created_at.slice(0, 10)
+    if (inc.rule_id in liveCounts) {
+      liveCounts[inc.rule_id][day] = (liveCounts[inc.rule_id][day] ?? 0) + 1
+    }
+  }
+  const LIVE_SERIES = RULE_SERIES.map((s) => ({
+    ...s,
+    data: dateLabels.map((d) => liveCounts[s.key][d] ?? 0),
+  }))
+
+  const series = isDemo ? DEMO_SERIES : LIVE_SERIES
+  const all = series.flatMap((s) => s.data)
+  const max = Math.max(...all, 1)
   const w = 700
   const h = 220
   const pl = 36
   const pr = 16
   const pt = 12
   const pb = 28
-  const x = (i: number) => pl + (i / (days - 1)) * (w - pl - pr)
+  const x = (i: number) => pl + (i / (DAYS - 1)) * (w - pl - pr)
   const y = (value: number) => pt + (1 - value / max) * (h - pt - pb)
+
+  const xTickDays = [0, 7, 14, 21, 28]
+  const xTickLabels = xTickDays.map((offset) => {
+    const d = new Date(dateLabels[offset] + 'T00:00:00')
+    return d.toLocaleDateString('default', { month: 'short', day: 'numeric' })
+  })
 
   return (
     <Card className="rounded-[3px]">
       <CardHeader className="flex-row items-start justify-between gap-4">
         <div>
-          <CardTitle>Events over time</CardTitle>
-          <CardDescription>Daily detections by object type</CardDescription>
+          <CardTitle>Incidents over time</CardTitle>
+          <CardDescription>VLM-confirmed incidents by type · last 30 days</CardDescription>
         </div>
-        <DemoBadge />
+        {isDemo ? <DemoBadge /> : (
+          <Badge variant="outline" className="shrink-0 border-[color:var(--ok-500)]/40 bg-[color:var(--ok-500)]/10 text-[color:var(--ok-300)]">
+            live data
+          </Badge>
+        )}
       </CardHeader>
       <CardContent>
         <div className="mb-2 flex flex-wrap gap-4 text-[11px] text-muted-foreground">
           {series.map((item) => (
             <span key={item.name} className="inline-flex items-center gap-1.5">
-              <span
-                className="size-2 rounded-[1px]"
-                style={{ background: item.color }}
-              />
+              <span className="size-2 rounded-[1px]" style={{ background: item.color }} />
               {item.name}
             </span>
           ))}
@@ -468,48 +539,36 @@ function TrendCard() {
           {[0, 0.25, 0.5, 0.75, 1].map((p) => (
             <g key={p}>
               <line
-                x1={pl}
-                x2={w - pr}
-                y1={pt + p * (h - pt - pb)}
-                y2={pt + p * (h - pt - pb)}
-                stroke="var(--border)"
-                strokeWidth="1"
+                x1={pl} x2={w - pr}
+                y1={pt + p * (h - pt - pb)} y2={pt + p * (h - pt - pb)}
+                stroke="var(--border)" strokeWidth="1"
                 strokeDasharray={p === 1 ? '0' : '2 3'}
               />
               <text
-                x={pl - 6}
-                y={pt + p * (h - pt - pb) + 3}
-                fontSize="10"
-                fill="var(--fg-4)"
-                textAnchor="end"
+                x={pl - 6} y={pt + p * (h - pt - pb) + 3}
+                fontSize="10" fill="var(--fg-4)" textAnchor="end"
                 fontFamily="var(--font-mono)"
               >
                 {Math.round(max * (1 - p))}
               </text>
             </g>
           ))}
-          {[0, 7, 14, 21, 28].map((day) => (
+          {xTickDays.map((dayOffset, ti) => (
             <text
-              key={day}
-              x={x(day)}
-              y={h - 10}
-              fontSize="10"
-              fill="var(--fg-4)"
-              textAnchor="middle"
+              key={dayOffset}
+              x={x(dayOffset)} y={h - 10}
+              fontSize="10" fill="var(--fg-4)" textAnchor="middle"
               fontFamily="var(--font-mono)"
             >
-              Apr {day + 1}
+              {xTickLabels[ti]}
             </text>
           ))}
           {series.map((item) => {
             const points = item.data.map((value, i) => `${x(i)},${y(value)}`).join(' ')
             return (
               <polyline
-                key={item.name}
-                points={points}
-                fill="none"
-                stroke={item.color}
-                strokeWidth="1.75"
+                key={item.name} points={points}
+                fill="none" stroke={item.color} strokeWidth="1.75"
               />
             )
           })}
@@ -521,7 +580,8 @@ function TrendCard() {
 
 function MapCard() {
   return (
-    <Card className="rounded-[3px]">
+    <div className="relative">
+      <Card className="rounded-[3px]">
       <CardHeader className="flex-row items-start justify-between gap-4">
         <div>
           <CardTitle>Hotspots</CardTitle>
@@ -613,6 +673,100 @@ function MapCard() {
         </div>
       </CardContent>
     </Card>
+    <Badge
+      variant="outline"
+      className="absolute right-2 top-2 border-[color:var(--warn-500)]/40 bg-[color:var(--warn-500)]/10 text-[color:var(--warn-500)] text-[10px]"
+    >
+      Coming Soon
+    </Badge>
+    </div>
+  )
+}
+
+const SEVERITY_COLORS: Record<string, string> = {
+  critical: 'var(--danger-500)',
+  high:     'var(--warn-500)',
+  medium:   'var(--accent-400)',
+  low:      'var(--ink-400)',
+}
+
+const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low']
+
+const SEVERITY_DEMO = [
+  { label: 'Critical', value: 47,  color: 'var(--danger-500)' },
+  { label: 'High',     value: 218, color: 'var(--warn-500)' },
+  { label: 'Medium',   value: 549, color: 'var(--accent-400)' },
+  { label: 'Low',      value: 433, color: 'var(--ink-400)' },
+]
+
+function SeverityBreakdownCard() {
+  const [items, setItems] = useState<{ label: string; value: number; color: string }[]>([])
+  const [isDemo, setIsDemo] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/analytics/summary', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d: { by_severity?: { severity: string; count: number }[] }) => {
+        const rows = d.by_severity ?? []
+        if (rows.length > 0) {
+          const sorted = [...rows].sort(
+            (a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity)
+          )
+          setItems(sorted.map((r) => ({
+            label: r.severity.charAt(0).toUpperCase() + r.severity.slice(1),
+            value: r.count,
+            color: SEVERITY_COLORS[r.severity] ?? 'var(--ink-400)',
+          })))
+          setIsDemo(false)
+        } else {
+          setIsDemo(true)
+        }
+      })
+      .catch(() => setIsDemo(true))
+  }, [])
+
+  const displayItems = isDemo
+    ? SEVERITY_DEMO
+    : items
+
+  const total = displayItems.reduce((sum, item) => sum + item.value, 0)
+  const max = Math.max(...displayItems.map((item) => item.value), 1)
+
+  return (
+    <Card className="rounded-[3px]">
+      <CardHeader className="flex-row items-start justify-between gap-4">
+        <div>
+          <CardTitle>By severity</CardTitle>
+          <CardDescription>
+            {total.toLocaleString()} {isDemo ? 'demo' : 'confirmed'} incidents
+          </CardDescription>
+        </div>
+        {isDemo ? <DemoBadge /> : (
+          <Badge variant="outline" className="shrink-0 border-[color:var(--ok-500)]/40 bg-[color:var(--ok-500)]/10 text-[color:var(--ok-300)]">
+            live data
+          </Badge>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {displayItems.map((item) => {
+          const pct = total > 0 ? (item.value / total) * 100 : 0
+          const width = (item.value / max) * 100
+          return (
+            <div key={item.label}>
+              <div className="mb-1 flex justify-between gap-3 text-xs">
+                <span className="truncate text-foreground/85">{item.label}</span>
+                <span className="shrink-0 font-mono text-muted-foreground">
+                  {item.value.toLocaleString()} · {pct.toFixed(1)}%
+                </span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-[1px]" style={{ background: 'var(--surface-3)' }}>
+                <div className="h-full" style={{ width: `${width}%`, background: item.color }} />
+              </div>
+            </div>
+          )
+        })}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -679,7 +833,7 @@ function HeatmapCard() {
     <Card className="rounded-[3px]">
       <CardHeader className="flex-row items-start justify-between gap-4">
         <div>
-          <CardTitle>When events happen</CardTitle>
+          <CardTitle>When Incidents Happen</CardTitle>
           <CardDescription>Day of week by hour of day</CardDescription>
         </div>
         <DemoBadge />
@@ -726,194 +880,11 @@ function HeatmapCard() {
   )
 }
 
-function RulesCard() {
-  return (
-    <Card className="rounded-[3px]">
-      <CardHeader className="flex-row items-start justify-between gap-4">
-        <div>
-          <CardTitle>Active detection rules</CardTitle>
-          <CardDescription>Mock rule volumes for reporting</CardDescription>
-        </div>
-        <DemoBadge />
-      </CardHeader>
-      <CardContent>
-        <div className="divide-y divide-border border-y">
-          {ACTIVE_RULES.map((rule) => (
-            <div key={rule.name} className="flex items-center gap-3 py-2.5">
-              <Sparkles className="size-3.5 shrink-0 text-[color:var(--accent-400)]" />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-xs font-medium text-foreground">
-                  {rule.name}
-                </div>
-                <div className="font-mono text-[10px] text-muted-foreground">
-                  fp {rule.fp}%
-                </div>
-              </div>
-              <div className="font-mono text-sm font-semibold">
-                {rule.triggers}
-              </div>
-              <Badge
-                variant="outline"
-                className={
-                  rule.status === 'tuning'
-                    ? 'border-[color:var(--warn-500)]/40 bg-[color:var(--warn-500)]/10 text-[color:var(--warn-500)]'
-                    : 'border-[color:var(--ok-500)]/40 bg-[color:var(--ok-500)]/10 text-[color:var(--ok-300)]'
-                }
-              >
-                {rule.status}
-              </Badge>
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function RecentUploadsCard({
-  uploads,
-  loading,
-  totalUploads,
-}: {
-  uploads: UploadRecord[]
-  loading: boolean
-  totalUploads: number
-}) {
-  return (
-    <Card className="rounded-[3px]">
-      <CardHeader className="flex-row items-start justify-between gap-4">
-        <div>
-          <CardTitle>Recent uploads</CardTitle>
-          <CardDescription>
-            Real v1 workflow · {totalUploads.toLocaleString()} total
-          </CardDescription>
-        </div>
-        <Button asChild variant="outline" size="sm" className="gap-1.5">
-          <Link href="/uploads">
-            <Upload className="size-3.5" />
-            Uploads
-          </Link>
-        </Button>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="space-y-2">
-            {[0, 1, 2].map((item) => (
-              <Skeleton key={item} className="h-12 w-full" />
-            ))}
-          </div>
-        ) : uploads.length === 0 ? (
-          <div
-            className="flex min-h-[180px] flex-col items-center justify-center rounded-[3px] border border-dashed p-6 text-center"
-            style={{
-              background:
-                'color-mix(in srgb, var(--accent-500) 5%, var(--surface-1))',
-            }}
-          >
-            <FileVideo className="mb-3 size-8 text-[color:var(--accent-400)]" />
-            <div className="font-display text-base font-semibold">
-              No uploads yet
-            </div>
-            <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-              Add a clip to populate the real dashboard metrics and timeline
-              inspection flow.
-            </p>
-            <Button asChild className="mt-4 gap-1.5">
-              <Link href="/uploads">
-                <Upload className="size-3.5" />
-                Add upload
-              </Link>
-            </Button>
-          </div>
-        ) : (
-          <div className="divide-y divide-border border-y">
-            {uploads.map((upload) => (
-              <Link
-                key={upload.video_id}
-                href={`/uploads/${upload.video_id}`}
-                className="grid grid-cols-[40px_1fr_auto] items-center gap-3 py-3 transition-colors hover:bg-secondary/30"
-              >
-                <div
-                  className="grid size-10 place-items-center rounded-[2px] border"
-                  style={{ background: '#000' }}
-                >
-                  <Video className="size-4 text-muted-foreground" />
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate font-mono text-xs font-medium text-foreground">
-                    {upload.original_filename}
-                  </div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                    <span>{upload.event_count.toLocaleString()} events</span>
-                    <span>{upload.track_count.toLocaleString()} tracks</span>
-                    <span>{formatUploaded(upload.uploaded_at)}</span>
-                  </div>
-                </div>
-                <ArrowUpRight className="size-3.5 text-muted-foreground" />
-              </Link>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function OutcomesCard() {
-  const outcomes = [
-    {
-      icon: Gauge,
-      stat: '4 min 12 s',
-      label: 'Avg. clearance time',
-      body: 'Modeled improvement placeholder for future incident workflow data.',
-    },
-    {
-      icon: ShieldCheck,
-      stat: '0',
-      label: 'Biometric IDs',
-      body: 'Policy placeholder: v1 tracks detections, not face or gait identity.',
-    },
-  ]
-
-  return (
-    <Card className="rounded-[3px]">
-      <CardHeader className="flex-row items-start justify-between gap-4">
-        <div>
-          <CardTitle>Outcomes</CardTitle>
-          <CardDescription>Executive reporting placeholders</CardDescription>
-        </div>
-        <DemoBadge />
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {outcomes.map((item) => (
-            <div
-              key={item.label}
-              className="rounded-[3px] border p-4"
-              style={{ background: 'var(--surface-2)' }}
-            >
-              <item.icon className="mb-3 size-4 text-[color:var(--accent-400)]" />
-              <div className="font-display text-2xl font-semibold tracking-tight text-[color:var(--accent-400)]">
-                {item.stat}
-              </div>
-              <div className="mt-2 text-xs font-medium text-foreground">
-                {item.label}
-              </div>
-              <div className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                {item.body}
-              </div>
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
 
 function DemoNoticeDialog({ open, onDismiss }: { open: boolean; onDismiss: () => void }) {
   const rows: { label: string; status: 'live' | 'demo' }[] = [
-    { label: 'Events indexed / Analyzed footage', status: 'live' },
-    { label: 'Rule-detected incidents', status: 'live' },
+    { label: 'Active Cameras / Analyzed footage', status: 'live' },
+    { label: 'Incidents detected', status: 'live' },
     { label: 'VLM-confirmed incidents', status: 'live' },
     { label: 'Trend chart, hotspot map', status: 'demo' },
     { label: 'Event / corridor / severity breakdowns', status: 'demo' },

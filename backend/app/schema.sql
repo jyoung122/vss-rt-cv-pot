@@ -59,6 +59,8 @@ ALTER TABLE incidents ADD COLUMN IF NOT EXISTS vlm_clip_path  TEXT;
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS vlm_latency_ms INTEGER;
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS vlm_at         TIMESTAMPTZ;
 
+ALTER TABLE uploads ADD COLUMN IF NOT EXISTS dss_status TEXT NOT NULL DEFAULT 'pending';
+
 CREATE INDEX IF NOT EXISTS incidents_vlm_pending ON incidents (video_id) WHERE vlm_status = 'pending';
 
 -- Rule configuration: user-tunable thresholds per rule type.

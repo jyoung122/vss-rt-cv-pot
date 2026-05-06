@@ -92,8 +92,10 @@ export function useUploadProgress(): UploadProgressState & UploadProgressActions
         method: 'POST',
         signal: ctrl.signal,
       })
-      if (!res.ok) throw new Error(`Analyze failed: HTTP ${res.status}`)
-      const data = (await res.json()) as { incidents_found: number }
+      if (res.status === 503) throw new Error('Detection pipeline unavailable — vss-rt-cv did not complete')
+      // 422 = pipeline ran but no events detected — treat as zero incidents
+      if (!res.ok && res.status !== 422) throw new Error(`Analyze failed: HTTP ${res.status}`)
+      const data = res.ok ? (await res.json()) as { incidents_found: number } : { incidents_found: 0 }
 
       if (data.incidents_found === 0) {
         // No incidents → skip VLM, go straight to done

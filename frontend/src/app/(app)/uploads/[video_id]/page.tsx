@@ -34,8 +34,10 @@ import {
   type VlmStatus,
   type VlmVerdict,
   formatBytes,
+  downloadIncidentClip,
 } from '@/lib/uploads'
 import { resumeTourIfNeeded } from '@/lib/tour'
+import { useDevSettings } from '@/lib/use-dev-settings'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -46,9 +48,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-
-// Suppress "unused import" — cn is available for future use
-void cn
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -129,6 +128,25 @@ export default function UploadDetailPage() {
   const [time, setTime] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [selectedTrackIdx, setSelectedTrackIdx] = useState<number | null>(null)
+  const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null)
+
+  // Selection is mutually exclusive: track and incident summary cards never
+  // both render. These wrappers keep that invariant in one place.
+  const selectTrack = useCallback((idx: number | null) => {
+    setSelectedTrackIdx(idx)
+    if (idx !== null) setSelectedIncidentId(null)
+  }, [])
+  const selectIncident = useCallback((id: string | null) => {
+    setSelectedIncidentId(id)
+    if (id !== null) setSelectedTrackIdx(null)
+  }, [])
+
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [analyzeMessage, setAnalyzeMessage] = useState<string | null>(null)
+
+  const { settings: devSettings } = useDevSettings()
 
   // Bbox overlay (debug viz: confirm track-ID continuity across frames)
   const [showBboxes, setShowBboxes] = useState(false)
@@ -136,6 +154,21 @@ export default function UploadDetailPage() {
   const [rawLoading, setRawLoading] = useState(false)
 
   // ─── Data fetch ────────────────────────────────────────────────────────────
+
+  const loadIncidents = useCallback(async () => {
+    setIncidentsLoading(true)
+    try {
+      const incRes = await fetch(`/api/uploads/${videoId}/incidents`, { cache: 'no-store' })
+      if (incRes.ok) {
+        const incData = await incRes.json()
+        setIncidents(incData.incidents ?? [])
+      }
+    } catch {
+      // Silently degrade — incidents not available yet is not a fatal error
+    } finally {
+      setIncidentsLoading(false)
+    }
+  }, [videoId])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -165,18 +198,8 @@ export default function UploadDetailPage() {
     }
 
     // Incidents fetched independently so the tab can show its own loading state
-    try {
-      const incRes = await fetch(`/api/uploads/${videoId}/incidents`, { cache: 'no-store' })
-      if (incRes.ok) {
-        const incData = await incRes.json()
-        setIncidents(incData.incidents ?? [])
-      }
-    } catch {
-      // Silently degrade — incidents not available yet is not a fatal error
-    } finally {
-      setIncidentsLoading(false)
-    }
-  }, [videoId])
+    await loadIncidents()
+  }, [videoId, loadIncidents])
 
   useEffect(() => { void load() }, [load])
 
@@ -227,18 +250,18 @@ export default function UploadDetailPage() {
       }
     }
     if (idx !== null) {
-      setSelectedTrackIdx(idx)
+      selectTrack(idx)
       seekTo(tracks[idx].first_t_seconds)
     }
-  }, [tracks, time, seekTo])
+  }, [tracks, time, seekTo, selectTrack])
 
   const nextTrack = useCallback(() => {
     const next = tracks.findIndex((t) => t.first_t_seconds > time + 0.5)
     if (next !== -1) {
-      setSelectedTrackIdx(next)
+      selectTrack(next)
       seekTo(tracks[next].first_t_seconds)
     }
-  }, [tracks, time, seekTo])
+  }, [tracks, time, seekTo, selectTrack])
 
   const handleScrubberClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -247,11 +270,13 @@ export default function UploadDetailPage() {
     seekTo(pct * dur)
   }, [upload, seekTo])
 
-  // Auto-select track as playhead moves through it
+  // Auto-select track as playhead moves through it. Skipped while a scenario
+  // is selected so the scenario card stays open across its time range.
   const onTimeUpdate = useCallback(() => {
     const vid = videoRef.current
     if (!vid) return
     setTime(vid.currentTime)
+    if (selectedIncidentId !== null) return
     const activeIdx = tracks.findIndex(
       (t) => vid.currentTime >= t.first_t_seconds &&
              vid.currentTime <= t.last_t_seconds
@@ -259,12 +284,47 @@ export default function UploadDetailPage() {
     if (activeIdx !== -1 && activeIdx !== selectedTrackIdx) {
       setSelectedTrackIdx(activeIdx)
     }
-  }, [tracks, selectedTrackIdx])
+  }, [tracks, selectedTrackIdx, selectedIncidentId])
 
   // ─── Derived ────────────────────────────────────────────────────────────────
 
   const duration = upload?.duration_s ?? 0
   const selectedTrack = selectedTrackIdx !== null ? tracks[selectedTrackIdx] : null
+  const selectedIncident = selectedIncidentId !== null
+    ? incidents.find((i) => i.id === selectedIncidentId) ?? null
+    : null
+
+  const handleReanalyze = useCallback(async () => {
+    setAnalyzing(true)
+    setAnalyzeMessage(null)
+    try {
+      const res = await fetch(`/api/uploads/${videoId}/analyze`, { method: 'POST' })
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail?.detail ?? `HTTP ${res.status}`)
+      }
+      const data = await res.json()
+      setAnalyzeMessage(`Re-analyzed · ${data.incidents_found} incident${data.incidents_found === 1 ? '' : 's'} found`)
+      await loadIncidents()
+    } catch (err) {
+      setAnalyzeMessage(err instanceof Error ? err.message : 'Re-analysis failed')
+    } finally {
+      setAnalyzing(false)
+    }
+  }, [videoId, loadIncidents])
+
+  const handleExportClip = useCallback(async () => {
+    if (!selectedIncident) return
+    setExporting(true)
+    setExportError(null)
+    try {
+      await downloadIncidentClip(videoId, selectedIncident)
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Export failed')
+    } finally {
+      setExporting(false)
+    }
+  }, [selectedIncident, videoId])
 
   // ─── Render: loading / error / 404 ─────────────────────────────────────────
 
@@ -325,6 +385,24 @@ export default function UploadDetailPage() {
         <MetaStat label="Uploaded by" value="—" />
         <MetaStat label="Analyzed in" value="real-time" />
         <div className="flex-1" />
+        {analyzeMessage && (
+          <span className="text-[11px]" style={{ color: 'var(--fg-3)' }}>
+            {analyzeMessage}
+          </span>
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleReanalyze}
+          disabled={analyzing}
+          className="h-7 gap-1.5"
+        >
+          <RefreshCw
+            className={cn('size-3', analyzing && 'animate-spin')}
+            strokeWidth={1.75}
+          />
+          {analyzing ? 'Re-running…' : 'Re-run analysis'}
+        </Button>
         <div
           className="flex items-center gap-1.5 text-[12px] font-medium"
           style={{ color: 'var(--accent-400)' }}
@@ -528,7 +606,7 @@ export default function UploadDetailPage() {
                       key={track.track_id}
                       onClick={(e) => {
                         e.stopPropagation()
-                        setSelectedTrackIdx(i)
+                        selectTrack(i)
                         seekTo(track.first_t_seconds)
                       }}
                       style={{
@@ -560,6 +638,7 @@ export default function UploadDetailPage() {
                         <div
                           onClick={(e) => {
                             e.stopPropagation()
+                            selectIncident(inc.id)
                             seekTo(inc.t_start_s)
                           }}
                           style={{
@@ -716,8 +795,31 @@ export default function UploadDetailPage() {
             </Card>
           )}
 
-          {/* No track selected hint */}
-          {!selectedTrack && tracks.length > 0 && (
+          {/* Selected scenario summary card */}
+          {selectedIncident && (
+            <SelectedScenarioCard
+              incident={selectedIncident}
+              tracks={tracks}
+              exporting={exporting}
+              exportError={exportError}
+              onReplay={() => {
+                seekTo(selectedIncident.t_start_s)
+                if (videoRef.current) void videoRef.current.play()
+              }}
+              onExport={handleExportClip}
+              onDismiss={() => selectIncident(null)}
+              onSelectTrack={(trackId) => {
+                const idx = tracks.findIndex((t) => t.track_id === trackId)
+                if (idx !== -1) {
+                  selectTrack(idx)
+                  seekTo(selectedIncident.t_start_s)
+                }
+              }}
+            />
+          )}
+
+          {/* No selection hint */}
+          {!selectedTrack && !selectedIncident && tracks.length > 0 && (
             <div
               className="rounded-[3px] px-4 py-3 text-[13px]"
               style={{
@@ -726,7 +828,7 @@ export default function UploadDetailPage() {
                 border: '1px solid var(--border)',
               }}
             >
-              Click a track in the right panel or on the scrubber to see details.
+              Click a scenario or track in the right panel — or on the scrubber — to see details.
             </div>
           )}
         </div>
@@ -740,16 +842,6 @@ export default function UploadDetailPage() {
             minHeight: 0,
           }}
         >
-          {/* Panel header */}
-          <div className="shrink-0 border-b px-4 pb-0 pt-3.5">
-            <div className="text-[13px] font-semibold" style={{ color: 'var(--fg-1)' }}>
-              Detected events
-            </div>
-            <div className="mt-0.5 text-[11px]" style={{ color: 'var(--fg-4)' }}>
-              Click an event to jump to that moment
-            </div>
-          </div>
-
           {/* Tabs — must be outside the header div to use full column height */}
           <Tabs defaultValue="scenarios" className="flex min-h-0 flex-1 flex-col">
             <div className="shrink-0 border-b px-4 pt-3">
@@ -762,9 +854,11 @@ export default function UploadDetailPage() {
                     </Badge>
                   )}
                 </TabsTrigger>
-                <TabsTrigger data-tour="tab-events" value="events" className="text-[12px]">
-                  Events
-                </TabsTrigger>
+                {!devSettings.hideEventsTab && (
+                  <TabsTrigger data-tour="tab-events" value="events" className="text-[12px]">
+                    Events
+                  </TabsTrigger>
+                )}
               </TabsList>
             </div>
 
@@ -772,20 +866,16 @@ export default function UploadDetailPage() {
             <TabsContent value="scenarios" className="flex min-h-0 flex-1 flex-col">
               <ScenariosPanel
                 incidents={incidents}
+                selectedIncidentId={selectedIncidentId}
                 loading={incidentsLoading}
                 onSelectIncident={(inc) => {
-                  // Seek to incident start and select first involved track
+                  selectIncident(inc.id)
                   seekTo(inc.t_start_s)
-                  const firstId = inc.track_ids[0]
-                  if (firstId != null) {
-                    const idx = tracks.findIndex((t) => t.track_id === firstId)
-                    if (idx !== -1) setSelectedTrackIdx(idx)
-                  }
                 }}
                 onSelectTrackAtTime={(trackId, time) => {
                   const idx = tracks.findIndex((t) => t.track_id === trackId)
                   if (idx !== -1) {
-                    setSelectedTrackIdx(idx)
+                    selectTrack(idx)
                     seekTo(time)
                   }
                 }}
@@ -793,16 +883,18 @@ export default function UploadDetailPage() {
             </TabsContent>
 
             {/* Events tab */}
-            <TabsContent value="events" className="flex min-h-0 flex-1 flex-col">
-              <EventsPanel
-                tracks={tracks}
-                selectedTrackIdx={selectedTrackIdx}
-                onSelect={(i) => {
-                  setSelectedTrackIdx(i)
-                  seekTo(tracks[i].first_t_seconds)
-                }}
-              />
-            </TabsContent>
+            {!devSettings.hideEventsTab && (
+              <TabsContent value="events" className="flex min-h-0 flex-1 flex-col">
+                <EventsPanel
+                  tracks={tracks}
+                  selectedTrackIdx={selectedTrackIdx}
+                  onSelect={(i) => {
+                    selectTrack(i)
+                    seekTo(tracks[i].first_t_seconds)
+                  }}
+                />
+              </TabsContent>
+            )}
           </Tabs>
         </div>
       </div>
@@ -943,11 +1035,13 @@ type VlmFilter = 'all' | 'confirmed' | 'rejected' | 'pending'
 
 function ScenariosPanel({
   incidents,
+  selectedIncidentId,
   loading,
   onSelectIncident,
   onSelectTrackAtTime,
 }: {
   incidents: Incident[]
+  selectedIncidentId: string | null
   loading: boolean
   onSelectIncident: (inc: Incident) => void
   onSelectTrackAtTime: (trackId: number, time: number) => void
@@ -1029,6 +1123,7 @@ function ScenariosPanel({
           <IncidentCard
             key={inc.id}
             incident={inc}
+            selected={inc.id === selectedIncidentId}
             onSelect={() => onSelectIncident(inc)}
             onSelectTrack={(trackId) => onSelectTrackAtTime(trackId, inc.t_start_s)}
           />
@@ -1087,10 +1182,12 @@ function VlmPill({ status, verdict }: { status: VlmStatus; verdict: VlmVerdict }
 
 function IncidentCard({
   incident,
+  selected,
   onSelect,
   onSelectTrack,
 }: {
   incident: Incident
+  selected: boolean
   onSelect: () => void
   onSelectTrack: (trackId: number) => void
 }) {
@@ -1098,7 +1195,14 @@ function IncidentCard({
   const hasWhy = incident.vlm_status === 'done' && !!incident.vlm_reasoning
 
   return (
-    <Card className="rounded-[3px]">
+    <Card
+      className="rounded-[3px] cursor-pointer transition-colors"
+      onClick={onSelect}
+      style={selected ? {
+        border: '1px solid color-mix(in srgb, var(--accent-500) 50%, transparent)',
+        background: 'color-mix(in srgb, var(--accent-500) 6%, var(--surface-1))',
+      } : undefined}
+    >
       <CardHeader className="pb-0">
         <div className="flex items-start gap-2">
           <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -1143,7 +1247,10 @@ function IncidentCard({
                   <Badge
                     variant="outline"
                     className="cursor-pointer font-mono text-[10px] hover:bg-secondary/50"
-                    onClick={() => onSelectTrack(id)}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onSelectTrack(id)
+                    }}
                   >
                     #{id}
                   </Badge>
@@ -1158,7 +1265,10 @@ function IncidentCard({
         {hasWhy && (
           <div>
             <button
-              onClick={() => setWhyOpen(!whyOpen)}
+              onClick={(e) => {
+                e.stopPropagation()
+                setWhyOpen(!whyOpen)
+              }}
               className="flex items-center gap-1 text-[11px] transition-colors"
               style={{ color: 'var(--fg-3)' }}
             >
@@ -1190,6 +1300,130 @@ function IncidentCard({
           </div>
         )}
       </CardContent>
+    </Card>
+  )
+}
+
+function SelectedScenarioCard({
+  incident,
+  tracks,
+  exporting,
+  exportError,
+  onReplay,
+  onExport,
+  onDismiss,
+  onSelectTrack,
+}: {
+  incident: Incident
+  tracks: TrackSummary[]
+  exporting: boolean
+  exportError: string | null
+  onReplay: () => void
+  onExport: () => void
+  onDismiss: () => void
+  onSelectTrack: (trackId: number) => void
+}) {
+  const severityColor = SEVERITY_COLOR[incident.severity]
+  const involvedTracks = incident.track_ids
+    .map((id) => tracks.find((t) => t.track_id === id))
+    .filter((t): t is TrackSummary => t != null)
+
+  return (
+    <Card
+      className="rounded-[3px] p-4"
+      style={{
+        border: `1px solid color-mix(in srgb, ${severityColor} 35%, transparent)`,
+        background: `color-mix(in srgb, ${severityColor} 5%, var(--surface-1))`,
+      }}
+    >
+      <div className="mb-3 flex items-center gap-2">
+        <div
+          className="grid shrink-0 place-items-center rounded-[3px]"
+          style={{ width: 22, height: 22, background: severityColor, color: '#fff' }}
+        >
+          <AlertTriangle className="size-3" strokeWidth={1.75} />
+        </div>
+        <div className="text-[12px] font-semibold" style={{ color: 'var(--fg-1)' }}>
+          {RULE_LABELS[incident.rule_id]}
+        </div>
+        <Badge variant="outline" className={severityBadgeClass(incident.severity)}>
+          {incident.severity}
+        </Badge>
+        <VlmPill status={incident.vlm_status} verdict={incident.vlm_verdict} />
+        <div className="flex-1" />
+        <Badge variant="secondary" className="font-mono text-[10px]">
+          {fmtTimestamp(incident.t_start_s)}–{fmtTimestamp(incident.t_end_s)}
+        </Badge>
+      </div>
+
+      <div className="mb-3 space-y-1 text-[13px]" style={{ color: 'var(--fg-1)', lineHeight: 1.55 }}>
+        <div className="font-mono text-[11px]" style={{ color: 'var(--fg-3)' }}>
+          Rule confidence: {(incident.confidence * 100).toFixed(1)}%
+          {incident.vlm_confidence != null && (
+            <> · VLM confidence: {(incident.vlm_confidence * 100).toFixed(1)}%</>
+          )}
+        </div>
+        {incident.vlm_reasoning && (
+          <div
+            className="rounded-[3px] px-2.5 py-2 text-[12px] leading-relaxed"
+            style={{
+              background: 'var(--surface-2)',
+              border: '1px solid var(--border)',
+              color: 'var(--fg-2)',
+            }}
+          >
+            <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.1em]"
+                 style={{ color: 'var(--fg-4)' }}>
+              <Brain className="size-3" strokeWidth={1.75} />
+              VLM reasoning
+            </div>
+            {incident.vlm_reasoning}
+          </div>
+        )}
+        {involvedTracks.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <span className="text-[11px]" style={{ color: 'var(--fg-4)' }}>Tracks:</span>
+            {involvedTracks.map((t) => (
+              <Badge
+                key={t.track_id}
+                variant="outline"
+                className="cursor-pointer font-mono text-[10px] capitalize hover:bg-secondary/50"
+                onClick={() => onSelectTrack(t.track_id)}
+              >
+                #{t.track_id} {t.class}
+              </Badge>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" size="sm" onClick={onReplay} className="gap-1.5 h-7">
+          <Play className="size-3" strokeWidth={1.75} />
+          Replay segment
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onExport}
+          disabled={exporting}
+          className="gap-1.5 h-7"
+        >
+          {exporting
+            ? <RefreshCw className="size-3 animate-spin" strokeWidth={1.75} />
+            : <Download className="size-3" strokeWidth={1.75} />}
+          {exporting ? 'Exporting…' : 'Export clip'}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onDismiss} className="gap-1.5 h-7">
+          <X className="size-3" strokeWidth={1.75} />
+          Close
+        </Button>
+        {exportError && (
+          <span className="text-[11px]" style={{ color: 'var(--danger-500)' }}>
+            {exportError}
+          </span>
+        )}
+      </div>
     </Card>
   )
 }

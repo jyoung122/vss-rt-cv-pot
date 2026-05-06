@@ -41,6 +41,29 @@ async def _get_nvstreamer_rtsp_url(filename: str) -> str | None:
     return None
 
 
+def _extract_thumbnail(video_path: Path, video_id: str) -> None:
+    """Extract a single JPEG frame from ~5 % into the video for use as a thumbnail."""
+    try:
+        thumb_dir = Path(DATA_DIR) / "thumbs"
+        thumb_dir.mkdir(parents=True, exist_ok=True)
+        out = thumb_dir / f"{video_id}.jpg"
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-ss", "0",
+                "-i", str(video_path),
+                "-vframes", "1",
+                "-q:v", "4",
+                "-vf", "scale=320:-1",
+                str(out),
+            ],
+            capture_output=True,
+            timeout=30,
+        )
+    except Exception as e:
+        log.warning("thumbnail.extract_failed", extra={"error": str(e)})
+
+
 def _probe_video(path: Path) -> tuple[float | None, int | None, int | None, float | None]:
     """Run ffprobe on the file; return (duration_s, width, height, fps). All may be None."""
     try:
@@ -163,6 +186,11 @@ async def upload_video(file: UploadFile, prompt: str | None = Form(default=None)
             height,
             fps,
             written,
+        )
+
+        # Extract thumbnail — best-effort, non-fatal
+        await asyncio.get_event_loop().run_in_executor(
+            None, _extract_thumbnail, file_path, video_id
         )
 
         stream_url = f"file:///data/videos/{video_id}{ext}"

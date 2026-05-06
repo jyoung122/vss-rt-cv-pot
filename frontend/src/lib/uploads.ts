@@ -41,6 +41,7 @@ export type UploadRecord = {
   size_bytes: number
   uploaded_at: string         // RFC3339
   playback_url: string        // "/api/video/<video_id>"
+  thumbnail_url: string | null  // "/api/thumbs/<video_id>" or null if not yet generated
   event_count: number
   track_count: number
 }
@@ -85,6 +86,43 @@ export function formatDurationSize(duration_s: number | null, size_bytes: number
     return `${formatDuration(duration_s)} · ${formatBytes(size_bytes)}`
   }
   return formatBytes(size_bytes)
+}
+
+const RULE_SLUG: Record<RuleId, string> = {
+  vehicle_collision: 'collision',
+  ped_impact: 'ped-impact',
+  stationary_vehicle: 'stationary',
+  mass_stop: 'traffic-anomaly',
+}
+
+export async function downloadIncidentClip(
+  videoId: string,
+  incident: Pick<Incident, 'rule_id' | 't_start_s' | 't_end_s'>,
+): Promise<void> {
+  const pad = 1.0
+  const start = Math.max(0, incident.t_start_s - pad)
+  const end = incident.t_end_s + pad
+  const params = new URLSearchParams({
+    start: start.toFixed(3),
+    end: end.toFixed(3),
+    label: RULE_SLUG[incident.rule_id],
+  })
+  const res = await fetch(`/api/uploads/${videoId}/clip?${params}`)
+  if (!res.ok) {
+    throw new Error(`Clip export failed: HTTP ${res.status}`)
+  }
+  const blob = await res.blob()
+  const cd = res.headers.get('content-disposition') ?? ''
+  const match = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i)
+  const filename = match ? decodeURIComponent(match[1]) : `clip_${videoId}.mp4`
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }
 
 export function formatUploaded(iso: string): string {

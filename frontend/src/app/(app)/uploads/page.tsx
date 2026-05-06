@@ -9,6 +9,7 @@ import {
   Filter,
   Grid3x3,
   List as ListIcon,
+  Search,
   Shield,
   Sparkles,
   Trash2,
@@ -98,7 +99,8 @@ function UploadsContent() {
   const [activeSize, setActiveSize] = useState<number>(0)
   const progress = useUploadProgress()
 
-  // Preview / delete dialogs
+  // Upload modal + preview / delete dialogs
+  const [uploadOpen, setUploadOpen] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<UploadRecord | null>(null)
   const [dragActive, setDragActive] = useState(false)
@@ -144,6 +146,7 @@ function UploadsContent() {
       setError(null)
       setActiveName(file.name)
       setActiveSize(file.size)
+      setUploadOpen(false)
       progress.startUpload()
 
       try {
@@ -239,174 +242,26 @@ function UploadsContent() {
     }
   }
 
-  const search = searchParams.get('q') ?? ''
+  const [search, setSearch] = useState(searchParams.get('q') ?? '')
+  const view = (searchParams.get('view') ?? 'list') as 'list' | 'grid'
   const filtered = items.filter((u) =>
     u.original_filename.toLowerCase().includes(search.toLowerCase()),
   )
 
-  // Total tracks across all uploads for the stats header
-  const totalTracks = items.reduce((sum, u) => sum + (u.track_count ?? 0), 0)
+  const setView = (v: 'list' | 'grid') => {
+    const params = new URLSearchParams(window.location.search)
+    params.set('view', v)
+    router.replace(`/uploads?${params.toString()}`, { scroll: false })
+  }
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex-1 overflow-auto p-5">
-        <div className="mx-auto max-w-[1280px]">
-          {/* Page header */}
-          <div className="mb-5 flex items-baseline justify-between">
-            <div>
-              <h1 className="font-display text-[26px] font-semibold leading-tight tracking-[-0.02em]">
-                Uploaded videos
-              </h1>
-              <p className="mt-1 text-[13px] text-muted-foreground">
-                Analyze recorded footage against a natural-language query.
-                Events are flagged with timestamps.
-              </p>
-            </div>
-            <div className="flex gap-7">
-              <Stat label="Total uploads" value={items.length.toString()} />
-              <Stat
-                label="Events detected"
-                value={items.length === 0 ? '—' : totalTracks.toString()}
-                hint="Sum of tracked objects across all uploads"
-              />
-              <Stat label="Avg. analysis" value="≈real-time" />
-            </div>
-          </div>
-
-          {/* design: not a Card — bespoke dropzone+query container with dashed accent border that fights Card's default styling */}
-          <div
-            className="grid grid-cols-1 gap-6 rounded-md p-6 lg:grid-cols-2"
-            style={{
-              border:
-                '1.5px dashed color-mix(in srgb, var(--accent-500) 40%, var(--border))',
-              background:
-                'color-mix(in srgb, var(--accent-500) 5%, var(--surface-1))',
-            }}
-          >
-            {/* design: not a Button primitive — this is the drag-and-drop zone with custom sizing and drag handlers.
-                It renders as a <button> for keyboard accessibility but carries drag* event handlers the
-                shadcn Button wrapper passes through, so it is an acceptable exception per spec. */}
-            <button
-              type="button"
-              onClick={() => inputRef.current?.click()}
-              onDragOver={(e) => {
-                e.preventDefault()
-                setDragActive(true)
-              }}
-              onDragLeave={() => setDragActive(false)}
-              onDrop={onDrop}
-              disabled={!!activeName}
-              className={cn(
-                'flex flex-col items-center justify-center gap-2 rounded-[3px] border px-6 py-5 text-center transition-colors',
-                'disabled:cursor-not-allowed disabled:opacity-50',
-                dragActive && 'ring-2 ring-primary/40',
-              )}
-              style={{ background: 'var(--surface-1)' }}
-            >
-              <div
-                className="grid size-12 place-items-center rounded-[3px]"
-                style={{
-                  background:
-                    'color-mix(in srgb, var(--accent-500) 14%, transparent)',
-                  color: 'var(--accent-400)',
-                }}
-              >
-                <UploadIcon className="size-[22px]" strokeWidth={1.75} />
-              </div>
-              <div className="font-display text-[17px] font-semibold tracking-[-0.01em] text-foreground">
-                Drop a video here
-              </div>
-              <div className="text-xs text-muted-foreground">
-                MP4 or MKV · up to 500 MB · H.264 or H.265
-              </div>
-              <div className="mt-1 flex gap-2">
-                {/* Primary CTA inside dropzone */}
-                <span
-                  className="inline-flex h-7 items-center gap-1.5 rounded-[3px] px-3 text-xs font-medium text-white"
-                  style={{ background: 'var(--accent-500)' }}
-                >
-                  <UploadIcon className="size-3.5" strokeWidth={2} />
-                  Select file
-                </span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span
-                      className="inline-flex h-7 items-center gap-1.5 rounded-[3px] border px-3 text-xs font-medium text-muted-foreground"
-                      style={{ background: 'var(--surface-2)' }}
-                    >
-                      <Video className="size-3.5" strokeWidth={1.75} />
-                      Pull from camera archive
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>Coming in v2</TooltipContent>
-                </Tooltip>
-              </div>
-            </button>
-
-            <input
-              ref={inputRef}
-              type="file"
-              accept={ACCEPT}
-              onChange={onPickFile}
-              className="hidden"
-              disabled={!!activeName}
-            />
-
-            <div className="flex flex-col gap-2">
-              <label className="flex items-center gap-1.5 text-xs font-semibold text-foreground/80">
-                <Sparkles
-                  className="size-[13px]"
-                  strokeWidth={1.75}
-                  style={{ color: 'var(--accent-400)' }}
-                />
-                What should AIMS look for?
-              </label>
-              <textarea
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                rows={4}
-                className="resize-none rounded-[3px] border px-3.5 py-3 text-sm leading-relaxed outline-none focus:border-primary/60"
-                style={{
-                  background: 'var(--surface-1)',
-                  color: 'var(--fg-1)',
-                  fontFamily: 'var(--font-sans)',
-                }}
-              />
-              <div className="flex flex-wrap gap-1.5">
-                {SUGGESTIONS.map((s) => (
-                  <Button
-                    key={s}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setQuery((q) =>
-                        q.endsWith(s) ? q : `${q.replace(/\s+$/, '')} · ${s}`,
-                      )
-                    }
-                    className="rounded-full h-6 text-[11px] px-2"
-                  >
-                    + {s}
-                  </Button>
-                ))}
-              </div>
-              <div className="flex gap-3.5 text-[11px] text-muted-foreground">
-                <span className="inline-flex items-center gap-1">
-                  <Shield className="size-3" strokeWidth={1.75} />
-                  Faces &amp; plates auto-redacted on ingest
-                </span>
-                <span className="inline-flex items-center gap-1">
-                  <Clock className="size-3" strokeWidth={1.75} />
-                  Typical: real-time on GPU
-                </span>
-              </div>
-            </div>
-          </div>
-
+        <div className="w-full">
           {/* Active upload card */}
           {activeName && (
             <Card
-              className="relative mt-5 overflow-hidden rounded-[3px] p-4"
+              className="relative mb-5 overflow-hidden rounded-[3px] p-4"
               style={{
                 border:
                   '1px solid color-mix(in srgb, var(--accent-500) 30%, var(--border))',
@@ -452,11 +307,35 @@ function UploadsContent() {
           )}
 
           {/* Recent uploads */}
-          <div data-tour="uploads-list" className="mt-7">
+          <div data-tour="uploads-list">
             <div className="mb-3 flex items-center gap-2.5">
-              <div className="text-[13px] font-semibold text-foreground">
-                Recent uploads · {filtered.length}
+              <div
+                className="flex h-8 w-full max-w-164 items-center gap-2 rounded-[3px] border px-3"
+                style={{ background: 'var(--surface-2)' }}
+              >
+                <Search className="size-3.5 shrink-0 text-muted-foreground" />
+                <input
+                  value={search}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setSearch(v)
+                    const params = new URLSearchParams(window.location.search)
+                    if (v.trim()) { params.set('q', v) } else { params.delete('q') }
+                    router.replace(`/uploads?${params.toString()}`, { scroll: false })
+                  }}
+                  placeholder="Search by name"
+                  className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+                />
               </div>
+              <Button
+                onClick={() => setUploadOpen(true)}
+                disabled={!!activeName}
+                size="sm"
+                className="gap-1.5 shrink-0"
+              >
+                <UploadIcon className="size-3.5" strokeWidth={2} />
+                Upload video
+              </Button>
               <div className="flex-1" />
               <Button
                 type="button"
@@ -471,199 +350,299 @@ function UploadsContent() {
                 className="flex rounded-[3px] border p-0.5"
                 style={{ background: 'var(--surface-2)' }}
               >
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-[26px] gap-1 rounded-[3px] px-2.5 text-[11px] text-foreground"
-                  style={{ background: 'var(--surface-3)' }}
-                >
-                  <ListIcon className="size-3" strokeWidth={1.75} /> List
-                </Button>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-[26px] gap-1 rounded-[3px] px-2.5 text-[11px] text-muted-foreground"
-                      disabled
-                    >
-                      <Grid3x3 className="size-3" strokeWidth={1.75} /> Grid
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Grid view — coming soon</TooltipContent>
-                </Tooltip>
+                {(['list', 'grid'] as const).map((m) => (
+                  <Button
+                    key={m}
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setView(m)}
+                    className={cn(
+                      'h-[26px] gap-1 rounded-[3px] px-2.5 text-[11px]',
+                      view === m ? 'text-foreground' : 'text-muted-foreground',
+                    )}
+                    style={view === m ? { background: 'var(--surface-3)' } : undefined}
+                  >
+                    {m === 'list'
+                      ? <><ListIcon className="size-3" strokeWidth={1.75} /> List</>
+                      : <><Grid3x3 className="size-3" strokeWidth={1.75} /> Grid</>
+                    }
+                  </Button>
+                ))}
               </div>
             </div>
 
-            {/* Table header */}
-            <div
-              className="grid items-center gap-4 border-b px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em]"
-              style={{
-                gridTemplateColumns:
-                  '90px 1fr 120px 110px 130px 180px 70px',
-                color: 'var(--fg-4)',
-              }}
-            >
-              <div>Preview</div>
-              <div>File · Query</div>
-              <div>Status</div>
-              <div>Tracks</div>
-              <div>Duration · Size</div>
-              <div>Uploaded</div>
-              <div className="text-right">Actions</div>
-            </div>
-
-            {/* Empty / loading / error states */}
+            {/* Empty / loading states — shared across both views */}
             {loading ? (
-              <div className="px-4 py-12 text-center text-sm text-muted-foreground">
+              <div className="py-12 text-center text-sm text-muted-foreground">
                 Loading…
               </div>
             ) : filtered.length === 0 ? (
-              <div className="px-4 py-12 text-center text-sm text-muted-foreground">
+              <div className="py-12 text-center text-sm text-muted-foreground">
                 {items.length === 0
-                  ? 'No uploads yet. Drop a clip above to get started.'
+                  ? 'No uploads yet. Click "Upload video" to get started.'
                   : 'No uploads match your search.'}
               </div>
-            ) : (
-              filtered.map((u, idx) => (
-                <div
-                  key={u.video_id}
-                  className="grid items-center gap-4 border-b px-4 py-3.5 text-[13px] transition-colors hover:bg-secondary/30"
-                  style={{
-                    gridTemplateColumns:
-                      '90px 1fr 120px 110px 130px 180px 70px',
-                    background:
-                      idx % 2 === 1
-                        ? 'color-mix(in srgb, var(--fg-1) 2%, transparent)'
-                        : 'transparent',
-                  }}
-                >
-                  {/* Preview thumbnail — clicking navigates to detail */}
-                  <Link href={`/uploads/${u.video_id}`} className="block">
-                    <div
-                      className="relative h-12 w-[84px] overflow-hidden rounded-[2px] border hover:ring-1 hover:ring-primary/50 transition-all"
-                      style={{ background: '#000' }}
-                    >
-                      <div className="grid h-full w-full place-items-center text-muted-foreground">
-                        <Video className="size-5" strokeWidth={1.5} />
-                      </div>
-                    </div>
-                  </Link>
-
-                  {/* File · Query */}
-                  <div className="min-w-0">
-                    <Link
-                      href={`/uploads/${u.video_id}`}
-                      className="block hover:text-primary transition-colors"
-                    >
-                      <div className="truncate font-mono text-xs font-medium text-foreground">
-                        {u.original_filename}
+            ) : view === 'grid' ? (
+              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                {filtered.map((u) => (
+                  <Card
+                    key={u.video_id}
+                    className="group relative overflow-hidden rounded-[3px] p-0 transition-shadow hover:shadow-md"
+                  >
+                    {/* Thumbnail */}
+                    <Link href={`/uploads/${u.video_id}`} className="block">
+                      <div
+                        className="relative aspect-video w-full overflow-hidden"
+                        style={{ background: '#000' }}
+                      >
+                        {u.thumbnail_url ? (
+                          <img
+                            src={u.thumbnail_url}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="grid h-full w-full place-items-center text-muted-foreground/40">
+                            <Video className="size-8" strokeWidth={1.25} />
+                          </div>
+                        )}
+                        {/* Hover overlay */}
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+                          <ArrowUpRight className="size-5 text-white" strokeWidth={1.75} />
+                        </div>
                       </div>
                     </Link>
-                    {u.prompt ? (
-                      <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
-                        <Sparkles
-                          className="size-2.5 shrink-0"
-                          strokeWidth={1.75}
-                          style={{ color: 'var(--accent-400)' }}
-                        />
-                        <span className="truncate">
-                          {u.prompt.length > 80
-                            ? u.prompt.slice(0, 80) + '…'
-                            : u.prompt}
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="mt-1 text-[11px] text-muted-foreground/40">
-                        —
-                      </div>
-                    )}
-                  </div>
 
-                  {/* Status */}
-                  <div>
-                    <Badge
-                      variant="outline"
-                      className="gap-1 border-[color:var(--ok-500)]/40 bg-[color:var(--ok-500)]/10 text-[color:var(--ok-300)]"
-                    >
-                      <Check className="size-3" strokeWidth={2} />
-                      analyzed
-                    </Badge>
-                  </div>
-
-                  {/* Tracks */}
-                  <div>
-                    {u.track_count > 0 ? (
-                      <div className="flex items-center gap-1.5">
+                    {/* Card body */}
+                    <div className="p-3">
+                      <Link
+                        href={`/uploads/${u.video_id}`}
+                        className="block truncate font-mono text-[12px] font-medium text-foreground hover:text-primary transition-colors"
+                      >
+                        {u.original_filename}
+                      </Link>
+                      <div className="mt-2 flex items-center justify-between gap-2">
                         <Badge
-                          variant="secondary"
-                          className="font-mono h-6 min-w-[28px] justify-center px-1.5 text-[11px]"
-                          style={{
-                            background:
-                              'color-mix(in srgb, var(--accent-500) 18%, transparent)',
-                            color: 'var(--accent-400)',
-                          }}
+                          variant="outline"
+                          className="gap-1 border-[color:var(--ok-500)]/40 bg-[color:var(--ok-500)]/10 text-[color:var(--ok-300)] text-[10px]"
                         >
-                          {u.track_count}
+                          <Check className="size-2.5" strokeWidth={2.5} />
+                          analyzed
                         </Badge>
-                        <span className="text-[11px] text-muted-foreground">
-                          tracked
-                        </span>
+                        {u.track_count > 0 && (
+                          <span
+                            className="font-mono text-[10px]"
+                            style={{ color: 'var(--accent-400)' }}
+                          >
+                            {u.track_count} tracked
+                          </span>
+                        )}
                       </div>
-                    ) : (
-                      <span className="text-[11px] text-muted-foreground/50">
-                        No detections
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Duration · Size */}
-                  <div className="font-mono text-xs text-foreground/80">
-                    {formatDurationSize(u.duration_s, u.size_bytes)}
-                  </div>
-
-                  {/* Uploaded */}
-                  <div className="text-xs text-muted-foreground">
-                    {formatUploaded(u.uploaded_at)}
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex justify-end gap-1">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setPreviewUrl(u.playback_url)}
-                          className="size-7 text-muted-foreground"
-                          aria-label="Quick preview"
-                        >
-                          <ArrowUpRight className="size-3.5" strokeWidth={1.75} />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Quick preview</TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setPendingDelete(u)}
-                          className="size-7 text-muted-foreground hover:bg-destructive/15 hover:text-[color:var(--danger-500)]"
-                          aria-label="Delete"
-                        >
-                          <Trash2 className="size-3.5" strokeWidth={1.75} />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Delete</TooltipContent>
-                    </Tooltip>
-                  </div>
+                      <div className="mt-1.5 flex items-center justify-between gap-2">
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {formatDurationSize(u.duration_s, u.size_bytes)}
+                        </span>
+                        <div className="flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setPreviewUrl(u.playback_url)}
+                                className="size-6 text-muted-foreground"
+                                aria-label="Quick preview"
+                              >
+                                <ArrowUpRight className="size-3" strokeWidth={1.75} />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Quick preview</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setPendingDelete(u)}
+                                className="size-6 text-muted-foreground hover:bg-destructive/15 hover:text-[color:var(--danger-500)]"
+                                aria-label="Delete"
+                              >
+                                <Trash2 className="size-3" strokeWidth={1.75} />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Delete</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <>
+                {/* Table header — list view only */}
+                <div
+                  className="grid items-center gap-4 border-b py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                  style={{
+                    gridTemplateColumns: '90px 1fr 120px 110px 130px 180px 70px',
+                    color: 'var(--fg-4)',
+                  }}
+                >
+                  <div>Preview</div>
+                  <div>File · Query</div>
+                  <div>Status</div>
+                  <div>Tracks</div>
+                  <div>Duration · Size</div>
+                  <div>Uploaded</div>
+                  <div className="text-right">Actions</div>
                 </div>
-              ))
+                {filtered.map((u, idx) => (
+                  <div
+                    key={u.video_id}
+                    className="grid items-center gap-4 border-b py-3.5 text-[13px] transition-colors hover:bg-secondary/30"
+                    style={{
+                      gridTemplateColumns: '90px 1fr 120px 110px 130px 180px 70px',
+                      background:
+                        idx % 2 === 1
+                          ? 'color-mix(in srgb, var(--fg-1) 2%, transparent)'
+                          : 'transparent',
+                    }}
+                  >
+                    {/* Preview thumbnail — clicking navigates to detail */}
+                    <Link href={`/uploads/${u.video_id}`} className="block">
+                      <div
+                        className="relative h-12 w-[84px] overflow-hidden rounded-[2px] border hover:ring-1 hover:ring-primary/50 transition-all"
+                        style={{ background: '#000' }}
+                      >
+                        {u.thumbnail_url ? (
+                          <img
+                            src={u.thumbnail_url}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="grid h-full w-full place-items-center text-muted-foreground">
+                            <Video className="size-5" strokeWidth={1.5} />
+                          </div>
+                        )}
+                      </div>
+                    </Link>
+
+                    {/* File · Query */}
+                    <div className="min-w-0">
+                      <Link
+                        href={`/uploads/${u.video_id}`}
+                        className="block hover:text-primary transition-colors"
+                      >
+                        <div className="truncate font-mono text-xs font-medium text-foreground">
+                          {u.original_filename}
+                        </div>
+                      </Link>
+                      {u.prompt ? (
+                        <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                          <Sparkles
+                            className="size-2.5 shrink-0"
+                            strokeWidth={1.75}
+                            style={{ color: 'var(--accent-400)' }}
+                          />
+                          <span className="truncate">
+                            {u.prompt.length > 80
+                              ? u.prompt.slice(0, 80) + '…'
+                              : u.prompt}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="mt-1 text-[11px] text-muted-foreground/40">
+                          —
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Status */}
+                    <div>
+                      <Badge
+                        variant="outline"
+                        className="gap-1 border-[color:var(--ok-500)]/40 bg-[color:var(--ok-500)]/10 text-[color:var(--ok-300)]"
+                      >
+                        <Check className="size-3" strokeWidth={2} />
+                        analyzed
+                      </Badge>
+                    </div>
+
+                    {/* Tracks */}
+                    <div>
+                      {u.track_count > 0 ? (
+                        <div className="flex items-center gap-1.5">
+                          <Badge
+                            variant="secondary"
+                            className="font-mono h-6 min-w-[28px] justify-center px-1.5 text-[11px]"
+                            style={{
+                              background:
+                                'color-mix(in srgb, var(--accent-500) 18%, transparent)',
+                              color: 'var(--accent-400)',
+                            }}
+                          >
+                            {u.track_count}
+                          </Badge>
+                          <span className="text-[11px] text-muted-foreground">
+                            tracked
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-muted-foreground/50">
+                          No detections
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Duration · Size */}
+                    <div className="font-mono text-xs text-foreground/80">
+                      {formatDurationSize(u.duration_s, u.size_bytes)}
+                    </div>
+
+                    {/* Uploaded */}
+                    <div className="text-xs text-muted-foreground">
+                      {formatUploaded(u.uploaded_at)}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex justify-end gap-1">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setPreviewUrl(u.playback_url)}
+                            className="size-7 text-muted-foreground"
+                            aria-label="Quick preview"
+                          >
+                            <ArrowUpRight className="size-3.5" strokeWidth={1.75} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Quick preview</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setPendingDelete(u)}
+                            className="size-7 text-muted-foreground hover:bg-destructive/15 hover:text-[color:var(--danger-500)]"
+                            aria-label="Delete"
+                          >
+                            <Trash2 className="size-3.5" strokeWidth={1.75} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Delete</TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </div>
+                ))}
+              </>
             )}
 
             {error && (
@@ -684,6 +663,130 @@ function UploadsContent() {
           </div>
         </div>
       </div>
+
+      {/* Upload modal */}
+      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="font-display text-base">Upload video</DialogTitle>
+            <DialogDescription>
+              Drop a clip or select a file, then describe what AIMS should look for.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Dropzone */}
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setDragActive(true) }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={onDrop}
+              className={cn(
+                'flex w-full flex-col items-center justify-center gap-2 rounded-[3px] border px-6 py-8 text-center transition-colors',
+                dragActive ? 'ring-2 ring-primary/40' : 'hover:bg-secondary/30',
+              )}
+              style={{ background: 'var(--surface-2)' }}
+            >
+              <div
+                className="grid size-10 place-items-center rounded-[3px]"
+                style={{
+                  background: 'color-mix(in srgb, var(--accent-500) 14%, transparent)',
+                  color: 'var(--accent-400)',
+                }}
+              >
+                <UploadIcon className="size-5" strokeWidth={1.75} />
+              </div>
+              <div className="font-display text-[15px] font-semibold tracking-[-0.01em] text-foreground">
+                Drop a video here
+              </div>
+              <div className="text-xs text-muted-foreground">
+                MP4 or MKV · up to 500 MB · H.264 or H.265
+              </div>
+              <div className="mt-1 flex gap-2">
+                <span
+                  className="inline-flex h-7 items-center gap-1.5 rounded-[3px] px-3 text-xs font-medium text-white"
+                  style={{ background: 'var(--accent-500)' }}
+                >
+                  <UploadIcon className="size-3.5" strokeWidth={2} />
+                  Select file
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      className="inline-flex h-7 items-center gap-1.5 rounded-[3px] border px-3 text-xs font-medium text-muted-foreground"
+                      style={{ background: 'var(--surface-1)' }}
+                    >
+                      <Video className="size-3.5" strokeWidth={1.75} />
+                      Pull from camera archive
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>Coming in v2</TooltipContent>
+                </Tooltip>
+              </div>
+            </button>
+
+            <input
+              ref={inputRef}
+              type="file"
+              accept={ACCEPT}
+              onChange={onPickFile}
+              className="hidden"
+            />
+
+            {/* Query */}
+            <div className="space-y-2">
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-foreground/80">
+                <Sparkles
+                  className="size-[13px]"
+                  strokeWidth={1.75}
+                  style={{ color: 'var(--accent-400)' }}
+                />
+                What should AIMS look for?
+              </label>
+              <textarea
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                rows={3}
+                className="w-full resize-none rounded-[3px] border px-3.5 py-3 text-sm leading-relaxed outline-none focus:border-primary/60"
+                style={{
+                  background: 'var(--surface-1)',
+                  color: 'var(--fg-1)',
+                  fontFamily: 'var(--font-sans)',
+                }}
+              />
+              <div className="flex flex-wrap gap-1.5">
+                {SUGGESTIONS.map((s) => (
+                  <Button
+                    key={s}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setQuery((q) =>
+                        q.endsWith(s) ? q : `${q.replace(/\s+$/, '')} · ${s}`,
+                      )
+                    }
+                    className="h-6 rounded-full px-2 text-[11px]"
+                  >
+                    + {s}
+                  </Button>
+                ))}
+              </div>
+              <div className="flex gap-3.5 text-[11px] text-muted-foreground">
+                <span className="inline-flex items-center gap-1">
+                  <Shield className="size-3" strokeWidth={1.75} />
+                  Faces &amp; plates auto-redacted on ingest
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <Clock className="size-3" strokeWidth={1.75} />
+                  Typical: real-time on GPU
+                </span>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Preview modal */}
       <Dialog open={!!previewUrl} onOpenChange={(o) => { if (!o) setPreviewUrl(null) }}>
@@ -712,27 +815,6 @@ function UploadsContent() {
   )
 }
 
-function Stat({
-  label,
-  value,
-  hint,
-}: {
-  label: string
-  value: string
-  hint?: string
-}) {
-  return (
-    <div className="text-right" title={hint}>
-      <div
-        className="text-[10px] font-semibold uppercase tracking-[0.1em]"
-        style={{ color: 'var(--fg-4)' }}
-      >
-        {label}
-      </div>
-      <div className="font-display text-base font-semibold">{value}</div>
-    </div>
-  )
-}
 
 function StageBadge({ stage, error }: { stage: UploadStage; error: string | null }) {
   if (stage === 'error') {

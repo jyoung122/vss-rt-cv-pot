@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
-  CalendarDays,
   Check,
   ChevronRight,
   Download,
@@ -12,11 +11,9 @@ import {
   List,
   MapPinned,
   Plus,
-  Search,
 } from 'lucide-react'
 
 import { type UploadRecord } from '@/lib/uploads'
-import { cn } from '@/lib/utils'
 import { startTour } from '@/lib/tour'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { Badge } from '@/components/ui/badge'
@@ -29,22 +26,12 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 
-const RANGES = [
-  { id: '7d', label: '7 days' },
-  { id: '30d', label: '30 days' },
-  { id: '90d', label: 'Quarter' },
-  { id: 'ytd', label: 'YTD' },
-] as const
-
-type RangeId = (typeof RANGES)[number]['id']
-
 export function AppHeader() {
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [range, setRange] = useState<RangeId>('30d')
   const [upload, setUpload] = useState<UploadRecord | null>(null)
-  const [search, setSearch] = useState('')
+  const [uploadStats, setUploadStats] = useState<{ total: number; events: number } | null>(null)
 
   const detailVideoId = useMemo(() => {
     const match = pathname.match(/^\/uploads\/([^/]+)$/)
@@ -53,7 +40,19 @@ export function AppHeader() {
 
   useEffect(() => {
     if (pathname !== '/uploads') return
-    setSearch(new URLSearchParams(window.location.search).get('q') ?? '')
+    let cancelled = false
+    fetch('/api/uploads', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d: { uploads?: UploadRecord[] }) => {
+        if (cancelled) return
+        const uploads = d.uploads ?? []
+        setUploadStats({
+          total: uploads.length,
+          events: uploads.reduce((sum, u) => sum + (u.track_count ?? 0), 0),
+        })
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
   }, [pathname])
 
   useEffect(() => {
@@ -88,17 +87,7 @@ export function AppHeader() {
     }
   }, [detailVideoId])
 
-  const updateUploadSearch = (value: string) => {
-    setSearch(value)
-    const params = new URLSearchParams(window.location.search)
-    if (value.trim()) {
-      params.set('q', value)
-    } else {
-      params.delete('q')
-    }
-    const query = params.toString()
-    router.replace(query ? `/uploads?${query}` : '/uploads', { scroll: false })
-  }
+
 
   return (
     <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b px-5 py-2">
@@ -107,62 +96,37 @@ export function AppHeader() {
 
       {pathname === '/' ? (
         <>
-          <span className="font-display text-[13px] font-medium text-foreground">
-            Dashboard
-          </span>
-          <div className="flex-1" />
-          <div
-            className="flex rounded-[3px] border p-0.5"
-            style={{ background: 'var(--surface-2)' }}
-          >
-            {RANGES.map((item) => (
-              <Button
-                key={item.id}
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setRange(item.id)}
-                className={cn(
-                  'h-[26px] rounded-[3px] px-2.5 text-[11px]',
-                  range === item.id
-                    ? 'text-foreground'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-                style={{
-                  background:
-                    range === item.id ? 'var(--surface-3)' : 'transparent',
-                }}
-              >
-                {item.label}
-              </Button>
-            ))}
+          <div className="flex flex-col justify-center">
+            <span className="text font-semibold leading-none tracking-[0.12em] text-[color:var(--accent-400)]">
+              City operations · {new Date().toLocaleString('default', { month: 'short', year: 'numeric' })}
+            </span>          
           </div>
-          <Button variant="outline" size="sm" disabled className="gap-1.5">
-            <CalendarDays className="size-3.5" />
-            Apr 1 - Apr 30
-          </Button>
-          <Button variant="outline" size="sm" disabled className="gap-1.5">
-            <Download className="size-3.5" />
-            Export PDF
-          </Button>
+          <div className="flex-1" />
         </>
       ) : pathname === '/uploads' ? (
         <>
-          <span className="font-display text-[13px] font-medium text-foreground">
-            Uploads
-          </span>
+          <div className="flex flex-col justify-center">
+            <span className="font-display text-[13px] font-semibold leading-none text-foreground">
+              Uploaded videos
+            </span>
+            <span className="mt-0.5 text-[11px] leading-none text-muted-foreground">
+              Analyze footage · flag events with timestamps
+            </span>
+          </div>
           <div className="flex-1" />
-          <div
-            className="flex h-8 w-full max-w-80 items-center gap-2 rounded-[3px] border px-3"
-            style={{ background: 'var(--surface-2)' }}
-          >
-            <Search className="size-3.5 text-muted-foreground" />
-            <input
-              value={search}
-              onChange={(e) => updateUploadSearch(e.target.value)}
-              placeholder="Search uploads by name"
-              className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
-            />
+          <div className="hidden md:flex items-center gap-5 mr-1">
+            {[
+              { label: 'Total uploads', value: uploadStats ? String(uploadStats.total) : '—' },
+              { label: 'Events detected', value: uploadStats ? String(uploadStats.events) : '—' },
+              { label: 'Avg. analysis', value: '≈real-time' },
+            ].map(({ label, value }) => (
+              <div key={label} className="text-right">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.1em]" style={{ color: 'var(--fg-4)' }}>
+                  {label}
+                </div>
+                <div className="font-display text-sm font-semibold leading-tight">{value}</div>
+              </div>
+            ))}
           </div>
         </>
       ) : detailVideoId ? (

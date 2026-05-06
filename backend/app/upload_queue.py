@@ -188,6 +188,9 @@ async def _process_job(job: dict, pool) -> None:
 
         # 3. Restart vss-rt-cv
         await _restart_container("vss-rt-cv")
+        await pool.execute(
+            "UPDATE uploads SET dss_status='processing' WHERE video_id=$1", video_id
+        )
 
         # 4. Wait for ingest plateau OR hard timeout
         row = await pool.fetchrow(
@@ -202,6 +205,7 @@ async def _process_job(job: dict, pool) -> None:
         consecutive = 0
         last_count: int | None = None
         PLATEAU_CONSECUTIVE = 3
+        plateau_reached = False
 
         while elapsed < hard_cap:
             await asyncio.sleep(1.0)
@@ -222,6 +226,7 @@ async def _process_job(job: dict, pool) -> None:
                 last_count = count
 
                 if consecutive >= PLATEAU_CONSECUTIVE:
+                    plateau_reached = True
                     duration_ms = int((time.monotonic() - job_start) * 1000)
                     log.info(
                         "upload_queue.job.plateau",
@@ -235,10 +240,14 @@ async def _process_job(job: dict, pool) -> None:
             else:
                 last_count = count
 
+        final_status = "completed" if plateau_reached else "failed"
+        await pool.execute(
+            "UPDATE uploads SET dss_status=$1 WHERE video_id=$2", final_status, video_id
+        )
         duration_ms = int((time.monotonic() - job_start) * 1000)
         log.info(
             "upload_queue.job.done",
-            extra={"video_id": video_id, "total_ms": duration_ms},
+            extra={"video_id": video_id, "total_ms": duration_ms, "dss_status": final_status},
         )
 
     except Exception:
@@ -246,6 +255,9 @@ async def _process_job(job: dict, pool) -> None:
             "upload_queue.job.error",
             extra={"video_id": video_id},
             exc_info=True,
+        )
+        await pool.execute(
+            "UPDATE uploads SET dss_status='failed' WHERE video_id=$1", video_id
         )
     finally:
         _active_job_id = None
