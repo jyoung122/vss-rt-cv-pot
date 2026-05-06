@@ -1,4 +1,4 @@
-/** @type {import('next').NextConfig} */
+import { withPayload } from '@payloadcms/next/withPayload'
 
 // Backend address for API + WS rewrites.
 // - In the docker stack: defaults to http://backend:8080 (compose service name).
@@ -6,13 +6,19 @@
 //   frontend/.env.local (matches docker-compose.dev.yml's exposed port).
 const backend = process.env.BACKEND_URL || 'http://backend:8080'
 
+/** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
   async rewrites() {
     return [
-      { source: '/api/:path*', destination: `${backend}/api/:path*` },
+      // Any /api/payload/* request must NOT be forwarded to FastAPI — Payload
+      // handles those internally as Next.js route handlers.  Use a negative-
+      // lookahead in the source regex so only non-payload /api/* paths are
+      // proxied to the backend.
+      { source: '/api/((?!payload).*)', destination: `${backend}/api/$1` },
       { source: '/ws/:path*', destination: `${backend}/ws/:path*` },
     ]
   },
 }
-module.exports = nextConfig
+
+export default withPayload(nextConfig)
