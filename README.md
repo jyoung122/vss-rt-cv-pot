@@ -313,6 +313,65 @@ Object string format: `track_id | x1 | y1 | x2 | y2 | class | # | … | confiden
 
 ---
 
+## Knowledge Base & CMS (Payload)
+
+Payload CMS v3 runs inside the `frontend/` Next.js app and powers two public routes:
+
+- **`/docs`** — Knowledge Base index and article pages (`/docs/[slug]`).
+- **`/[...slug]`** — Landing pages built from composable blocks (Hero, FeatureGrid, CTA, etc.).
+- **`/admin`** — Payload admin UI for editing content. Payload auth is separate from Supabase — end users browsing `/docs` and the landing pages do **not** need a Supabase session.
+
+### Required env vars
+
+Add to your `.env` (see `.env.example` for placeholders):
+
+```bash
+DATABASE_URI=postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/postgres?search_path=payload
+PAYLOAD_SECRET=<32-char random string — openssl rand -hex 32>
+PAYLOAD_S3_BUCKET=payload-media
+```
+
+`S3_PROTOCOL_ACCESS_KEY_ID`, `S3_PROTOCOL_ACCESS_KEY_SECRET`, `STORAGE_S3_ENDPOINT`, and `REGION` are also used by Payload's media storage (shared with the Supabase MinIO instance).
+
+### One-time setup
+
+```bash
+# 1. Start the Supabase stack (Postgres + MinIO must be running)
+docker compose -f docker-compose.dev.yml -f docker-compose.supabase.yml up -d
+
+# 2. Create the Payload media bucket in MinIO (idempotent — safe to re-run)
+bash scripts/create-payload-bucket.sh
+
+# 3. Visit http://localhost:3000/admin and follow the prompt to create the first Payload admin user
+```
+
+### Seeding starter content
+
+```bash
+cd frontend && npm run seed   # upserts 4 categories, 8 articles, and 1 landing page — idempotent
+```
+
+Re-run at any time without creating duplicates. Existing records are updated in place.
+
+### Troubleshooting
+
+**`getaddrinfo EAI_AGAIN db` from `npm run dev` or `npm run seed`.** The repo-root `DATABASE_URI` uses `@db:5432` (compose service DNS). When running Next.js or the seed script on the host, `db` doesn't resolve. Set `DATABASE_URI` in `frontend/.env.local` to `postgresql://postgres:<literal-POSTGRES_PASSWORD>@localhost:5432/postgres?search_path=payload`. Next.js dotenv does not expand `${POSTGRES_PASSWORD}` across files — paste the literal value.
+
+**`Cannot destructure property 'loadEnvConfig' of 'import_env.default' as it is undefined`.** Payload v3.84's `dist/bin/loadEnv.js` does `import nextEnvImport from '@next/env'`, but `@next/env` is a CJS module without a `default` export — fails under Node's current ESM interop. Patch (will be wiped by `npm install`):
+
+```bash
+sed -i "s/import nextEnvImport from '@next\\/env';/import * as nextEnvImport from '@next\\/env';/" \
+  frontend/node_modules/.pnpm/payload@*/node_modules/payload/dist/bin/loadEnv.js
+```
+
+Namespace import (`import * as`) works under both tsx and native Node ESM. A named import (`import { loadEnvConfig }`) parses fine under tsx but throws `SyntaxError: does not provide an export named 'loadEnvConfig'` under Node ESM, because `@next/env`'s CJS bundle assembles `module.exports` dynamically and Node's static analyzer can't see the named exports.
+
+For a durable fix, pin via `pnpm patch` or bump Payload past v3.84 once a release with the fix lands.
+
+**`ValidationError: Excerpt` during seed.** Some seeded excerpts run to 344 chars; the `excerpt` field on `Articles.ts` is capped at 600 (was 280). If you tighten the cap, trim `frontend/src/payload/seed/articles.ts` accordingly.
+
+---
+
 ## Known issues
 
 **TRT engine compile (~3.5 min on first run, ~5 s warm).** Normal — RT-DETR ONNX compiles to a TRT FP16 engine on first boot and persists in `data/models/`. Watch `docker compose logs -f vss-rt-cv` for "Starting DeepStream" before uploading. A future Phase 3 item pins the cache to a named volume to survive container rebuilds.

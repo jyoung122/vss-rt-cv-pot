@@ -159,6 +159,50 @@ The UI will show no VLM pills (status `skipped` renders nothing visible).
 - Healthchecks are defined for `redis`, `postgres`, `backend`, and `vss-rt-cv`.
 - `redis-commander` removed from prod compose. Use `docker exec vss-redis redis-cli` for ad-hoc inspection.
 
+`supabase-storage` and `supabase-studio` may show `(unhealthy)` while serving fine. Both are upstream healthcheck bugs:
+- storage hits `http://localhost:5000/status`, but inside the container `localhost` resolves to `::1` (IPv6) first while storage-api binds IPv4 only — connection refused. Service works on `127.0.0.1:5000`.
+- studio hits `/api/platform/profile`, which 404s in `studio:2026.04.28-sha-89d08a2`. Next.js itself starts fine.
+
+Override the healthchecks in `docker-compose.supabase.yml` (point storage at `127.0.0.1` or disable studio's) if the noise matters.
+
+---
+
+## Payload CMS / KB
+
+### `getaddrinfo EAI_AGAIN db` from `npm run dev` or `npm run seed`
+
+**Cause.** Repo-root `DATABASE_URI` points at `@db:5432` (compose service DNS). When Next or the seed script runs on the host, `db` doesn't resolve. Compounding it: Next's dotenv does not expand `${POSTGRES_PASSWORD}` across files — only same-file substitutions work.
+
+**Fix.** In `frontend/.env.local`, set the literal:
+```
+DATABASE_URI=postgresql://postgres:<paste-POSTGRES_PASSWORD>@localhost:5432/postgres?search_path=payload
+```
+`frontend/.env.local.example` carries the template.
+
+### `loadEnvConfig` import errors under tsx and/or Node ESM
+
+**Symptoms (two different forms, depending on entry point).**
+- Under tsx (`npm run seed`): `TypeError: Cannot destructure property 'loadEnvConfig' of 'import_env.default' as it is undefined`.
+- Under native Node ESM (`next dev`): `SyntaxError: The requested module '@next/env' does not provide an export named 'loadEnvConfig'`.
+
+**Cause.** Payload v3.84's `dist/bin/loadEnv.js` ships `import nextEnvImport from '@next/env'`. `@next/env` is CJS and assembles `module.exports` dynamically inside an IIFE — so:
+- tsx's esbuild interop synthesizes `import_env.default`, which is undefined → runtime crash.
+- Node ESM static-analyzes `module.exports = ...` and finds no statically-resolvable named exports → either parse-time SyntaxError on a named import, or no `default` on a default import.
+
+**Fix.** Use a namespace import — works under both:
+```bash
+sed -i "s/import nextEnvImport from '@next\\/env';/import * as nextEnvImport from '@next\\/env';/" \
+  frontend/node_modules/.pnpm/payload@*/node_modules/payload/dist/bin/loadEnv.js
+```
+
+`npm install` wipes the patch. Durable options: pin via `pnpm patch`, or upgrade Payload past v3.84 once a fixed release lands.
+
+### `ValidationError: Excerpt` during `npm run seed`
+
+**Cause.** Seed data in `frontend/src/payload/seed/articles.ts` includes excerpts up to ~344 chars; the `excerpt` field on `Articles.ts` was capped at 280.
+
+**Fix.** Cap bumped to 600 (committed). If you tighten it, trim the seed data accordingly.
+
 ---
 
 ## Fast-path checklist for a cold deploy
