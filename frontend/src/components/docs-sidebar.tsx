@@ -115,7 +115,7 @@ export function DocsSidebar({
                       return (
                         <SidebarMenuItem key={a.id}>
                           <SidebarMenuButton asChild isActive={active}>
-                            <Link href={href}>{a.title}</Link>
+                            <Link className="pl-5" href={href}>{a.title}</Link>
                           </SidebarMenuButton>
                         </SidebarMenuItem>
                       )
