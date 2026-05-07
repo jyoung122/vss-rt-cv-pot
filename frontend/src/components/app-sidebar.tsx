@@ -39,16 +39,16 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon" data-tour="sidebar">
       <SidebarHeader>
-        <Link href="/" className="flex items-center justify-center px-2 py-3">
+        <Link href="/" className="flex items-center justify-start px-2">
           <img
             src="/brand/favicon.png"
             alt="AIMS"
             className="size-6 hidden group-data-[collapsible=icon]:block"
           />
           <img
-            src="/brand/aims-logo.png"
+            src="/brand/aims-logo-light.png"
             alt="AIMS"
-            className="h-8 w-auto group-data-[collapsible=icon]:hidden"
+            className="h-10 w-auto group-data-[collapsible=icon]:hidden"
           />
         </Link>
       </SidebarHeader>
