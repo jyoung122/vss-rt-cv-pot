@@ -214,6 +214,15 @@ services:
       - vss-net
     restart: unless-stopped
 
+  # Overlay: bake supabase build-args into the frontend image so
+  # NEXT_PUBLIC_SUPABASE_URL / _ANON_KEY are inlined at Next.js build time.
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+
 networks:
   vss-net:
 
