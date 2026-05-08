@@ -472,7 +472,7 @@ export default function UploadDetailPage() {
                 onPause={() => setPlaying(false)}
                 onEnded={() => setPlaying(false)}
                 className="block w-full"
-                style={{ maxHeight: 440, objectFit: 'contain', background: '#000' }}
+                style={{ maxHeight: 320, objectFit: 'contain', background: '#000' }}
               />
               {/* Bbox overlay (debug) — only mounted when toggled on */}
               {showBboxes && rawEvents && upload.width && upload.height && (

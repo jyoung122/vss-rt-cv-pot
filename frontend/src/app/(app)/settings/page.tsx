@@ -1,10 +1,11 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useDevSettings } from '@/lib/use-dev-settings'
 
@@ -36,6 +37,106 @@ function SettingRow({
   )
 }
 
+interface VlmProviderState {
+  active: string
+  env_default: string
+  available: string[]
+  overridden: boolean
+}
+
+function VlmProviderControl() {
+  const [state, setState] = useState<VlmProviderState | null>(null)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch('/api/dev/vlm-provider', { cache: 'no-store' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setState(await res.json())
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load')
+    }
+  }, [])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  async function pick(provider: string) {
+    if (state?.active === provider) return
+    setPending(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/dev/vlm-provider', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setState(await res.json())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Update failed')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  async function reset() {
+    setPending(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/dev/vlm-provider', { method: 'DELETE' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setState(await res.json())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Reset failed')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <SettingRow
+      label="VLM provider"
+      description={
+        state
+          ? `Active: ${state.active}${state.overridden ? ' (runtime override)' : ' (from VLM_PROVIDER env)'}. Env default: ${state.env_default}.`
+          : error
+          ? `Failed to load: ${error}`
+          : 'Loading…'
+      }
+    >
+      <div className="flex items-center gap-2">
+        {state?.available.map((p) => (
+          <Button
+            key={p}
+            size="sm"
+            variant={state.active === p ? 'default' : 'outline'}
+            disabled={pending}
+            onClick={() => void pick(p)}
+            className="h-7 px-3 text-xs"
+          >
+            {p}
+          </Button>
+        ))}
+        {state?.overridden && (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={pending}
+            onClick={() => void reset()}
+            className="h-7 px-2 text-xs text-muted-foreground"
+          >
+            Reset
+          </Button>
+        )}
+      </div>
+    </SettingRow>
+  )
+}
+
 function DevelopmentSettings() {
   const { settings, update } = useDevSettings()
 
@@ -47,6 +148,18 @@ function DevelopmentSettings() {
           Tooling and debug options. These settings only apply in development mode.
         </p>
       </div>
+
+      <Card>
+        <CardHeader className="pb-0">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            VLM provider
+            <Badge variant="secondary" className="text-xs font-normal">runtime override</Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pb-0">
+          <VlmProviderControl />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-0">

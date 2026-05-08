@@ -27,12 +27,15 @@ class VLMProvider(Protocol):
 def get_provider() -> VLMProvider:
     """Instantiate and return the configured VLM provider.
 
-    Reads VLM_PROVIDER (default: "cosmos").
-    Raises ValueError immediately if the env value is unrecognised or required
-    env vars are missing, so misconfiguration surfaces at startup rather than
-    at the first incident.
+    Honours a runtime override from app.dev_settings (set via the settings UI)
+    if present; otherwise reads VLM_PROVIDER env (default: "cosmos").
+    Raises ValueError immediately if the value is unrecognised or required
+    env vars are missing, so misconfiguration surfaces at the first call
+    rather than silently falling back.
     """
-    provider_name = os.getenv("VLM_PROVIDER", "cosmos").lower().strip()
+    # Local import to avoid circular import at module load time.
+    from app.dev_settings import get_active_vlm_provider
+    provider_name = get_active_vlm_provider()
 
     if provider_name == "cosmos":
         from .cosmos import CosmosProvider

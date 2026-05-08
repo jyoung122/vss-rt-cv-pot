@@ -20,6 +20,7 @@ from app.playback import router as playback_router
 from app.events import router as events_router
 from app.uploads_list import router as uploads_list_router
 from app.incidents import router as incidents_router
+from app.dev_settings import router as dev_settings_router
 from app.sdr import remove_active_stream
 from app.redis_client import clear_stream
 from app.db import init_pool, close_pool
@@ -162,6 +163,7 @@ app.include_router(playback_router, dependencies=[Depends(require_user)])
 app.include_router(events_router)
 app.include_router(uploads_list_router, dependencies=[Depends(require_user)])
 app.include_router(incidents_router, dependencies=[Depends(require_user)])
+app.include_router(dev_settings_router, dependencies=[Depends(require_user)])
 
 
 @app.get("/healthz")

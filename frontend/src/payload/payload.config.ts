@@ -23,6 +23,12 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
+  // Mount Payload's REST/GraphQL under /api/payload so /api/* stays free for
+  // FastAPI rewrites (Payload's default /api/[...slug] catch-all otherwise
+  // shadows every backend route).
+  routes: {
+    api: '/api/payload',
+  },
   editor: lexicalEditor(),
   collections: [Articles, Categories, Pages, Media, Users],
   secret: process.env.PAYLOAD_SECRET || '',
