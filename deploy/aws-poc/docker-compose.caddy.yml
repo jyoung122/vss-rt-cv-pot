@@ -1,0 +1,29 @@
+# Overlay that adds Caddy in front of the frontend/backend.
+# Usage:
+#   docker compose -f docker-compose.yml -f deploy/aws-poc/docker-compose.caddy.yml up -d
+#
+# Requires PUBLIC_HOSTNAME in .env (e.g. aims-poc.example.com).
+
+services:
+  caddy:
+    image: caddy:2
+    container_name: aims-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUBLIC_HOSTNAME: ${PUBLIC_HOSTNAME}
+    volumes:
+      - ./deploy/aws-poc/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - vss-net
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  caddy_data:
+  caddy_config:

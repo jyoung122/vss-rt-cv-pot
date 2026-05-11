@@ -1,0 +1,17 @@
+[Unit]
+Description=AIMS compose stack
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/aims
+EnvironmentFile=/opt/aims/.env
+ExecStart=/usr/bin/docker compose --profile gpu -f docker-compose.yml -f deploy/aws-poc/docker-compose.caddy.yml up -d
+ExecStop=/usr/bin/docker compose --profile gpu -f docker-compose.yml -f deploy/aws-poc/docker-compose.caddy.yml down
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target

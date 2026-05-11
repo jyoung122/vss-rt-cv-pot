@@ -1,0 +1,18 @@
+# Caddy auto-issues + renews a Let's Encrypt cert for ${PUBLIC_HOSTNAME}.
+# Requires: A record pointing the hostname at this host, ports 80+443 open.
+
+{$PUBLIC_HOSTNAME} {
+	encode zstd gzip
+
+	# Frontend (Next.js) — everything by default
+	reverse_proxy frontend:3000
+
+	# Backend API — keep paths aligned with frontend's API client
+	@api path /api/* /uploads/* /events/* /healthz
+	reverse_proxy @api backend:8080
+
+	# Generous body size for video uploads
+	request_body {
+		max_size 10GB
+	}
+}
