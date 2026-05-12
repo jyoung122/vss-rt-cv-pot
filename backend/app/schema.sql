@@ -10,6 +10,10 @@ CREATE TABLE IF NOT EXISTS uploads (
   uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Phase A multi-user: per-row owner. NULL = legacy/unowned (invisible to all users).
+ALTER TABLE uploads ADD COLUMN IF NOT EXISTS user_id TEXT;
+CREATE INDEX IF NOT EXISTS uploads_user_uploaded ON uploads (user_id, uploaded_at DESC);
+
 CREATE TABLE IF NOT EXISTS events (
   id BIGSERIAL PRIMARY KEY,
   video_id TEXT NOT NULL REFERENCES uploads(video_id) ON DELETE CASCADE,

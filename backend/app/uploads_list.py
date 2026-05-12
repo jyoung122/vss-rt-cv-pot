@@ -3,9 +3,10 @@
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response
 
+from app.auth import require_user
 from app.db import get_pool
 import app.upload_queue as upload_queue
 
@@ -37,7 +38,7 @@ def _upload_record(row, event_count: int, track_count: int) -> dict:
 
 
 @router.get("/api/uploads")
-async def list_uploads():
+async def list_uploads(user: dict = Depends(require_user)):
     pool = get_pool()
     rows = await pool.fetch(
         """
@@ -53,14 +54,16 @@ async def list_uploads():
             FROM events
             GROUP BY video_id
         ) e ON e.video_id = u.video_id
+        WHERE u.user_id = $1
         ORDER BY u.uploaded_at DESC
-        """
+        """,
+        user["user_id"],
     )
     return {"uploads": [_upload_record(r, r["event_count"], r["track_count"]) for r in rows]}
 
 
 @router.get("/api/uploads/{video_id}")
-async def get_upload(video_id: str):
+async def get_upload(video_id: str, user: dict = Depends(require_user)):
     pool = get_pool()
     row = await pool.fetchrow(
         """
@@ -77,9 +80,10 @@ async def get_upload(video_id: str):
             WHERE video_id = $1
             GROUP BY video_id
         ) e ON e.video_id = u.video_id
-        WHERE u.video_id = $1
+        WHERE u.video_id = $1 AND u.user_id = $2
         """,
         video_id,
+        user["user_id"],
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Upload not found")
@@ -87,7 +91,14 @@ async def get_upload(video_id: str):
 
 
 @router.get("/api/thumbs/{video_id}")
-async def get_thumbnail(video_id: str):
+async def get_thumbnail(video_id: str, user: dict = Depends(require_user)):
+    pool = get_pool()
+    owns = await pool.fetchval(
+        "SELECT 1 FROM uploads WHERE video_id=$1 AND user_id=$2",
+        video_id, user["user_id"],
+    )
+    if not owns:
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
     thumb = Path(DATA_DIR) / "thumbs" / f"{video_id}.jpg"
     if not thumb.exists():
         raise HTTPException(status_code=404, detail="Thumbnail not found")
@@ -95,9 +106,12 @@ async def get_thumbnail(video_id: str):
 
 
 @router.delete("/api/uploads/{video_id}")
-async def delete_upload(video_id: str):
+async def delete_upload(video_id: str, user: dict = Depends(require_user)):
     pool = get_pool()
-    result = await pool.execute("DELETE FROM uploads WHERE video_id=$1", video_id)
+    result = await pool.execute(
+        "DELETE FROM uploads WHERE video_id=$1 AND user_id=$2",
+        video_id, user["user_id"],
+    )
     # asyncpg returns "DELETE <count>"
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Upload not found")
@@ -113,7 +127,7 @@ async def delete_upload(video_id: str):
 
 
 @router.get("/api/uploads/{video_id}/progress")
-async def get_upload_progress(video_id: str):
+async def get_upload_progress(video_id: str, user: dict = Depends(require_user)):
     vlm_enabled = os.environ.get("VLM_ENABLED", "false").lower() == "true"
     pool = get_pool()
     row = await pool.fetchrow(
@@ -146,9 +160,10 @@ async def get_upload_progress(video_id: str):
             WHERE video_id = $1
             GROUP BY video_id
         ) i ON i.video_id = u.video_id
-        WHERE u.video_id = $1
+        WHERE u.video_id = $1 AND u.user_id = $2
         """,
         video_id,
+        user["user_id"],
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Upload not found")
@@ -193,11 +208,18 @@ async def get_upload_progress(video_id: str):
 
 
 @router.get("/api/uploads/{video_id}/events")
-async def get_upload_events(video_id: str, group: str = "tracks"):
+async def get_upload_events(
+    video_id: str,
+    group: str = "tracks",
+    user: dict = Depends(require_user),
+):
     pool = get_pool()
 
-    # Verify the upload exists
-    exists = await pool.fetchval("SELECT 1 FROM uploads WHERE video_id=$1", video_id)
+    # Verify the upload exists and belongs to the caller
+    exists = await pool.fetchval(
+        "SELECT 1 FROM uploads WHERE video_id=$1 AND user_id=$2",
+        video_id, user["user_id"],
+    )
     if not exists:
         raise HTTPException(status_code=404, detail="Upload not found")
 

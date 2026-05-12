@@ -4,10 +4,11 @@ import os
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
+from app.auth import require_user
 from app.db import get_pool
 
 DATA_DIR = os.getenv("DATA_DIR", "/data")
@@ -23,10 +24,11 @@ def _resolve_source(video_id: str, original_filename: str) -> Path:
 
 
 @router.get("/api/video/{video_id}")
-async def get_video(video_id: str):
+async def get_video(video_id: str, user: dict = Depends(require_user)):
     pool = get_pool()
     row = await pool.fetchrow(
-        "SELECT original_filename FROM uploads WHERE video_id=$1", video_id
+        "SELECT original_filename FROM uploads WHERE video_id=$1 AND user_id=$2",
+        video_id, user["user_id"],
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Video not found")
@@ -46,6 +48,7 @@ async def get_clip(
     start: float = Query(..., ge=0.0),
     end: float = Query(..., gt=0.0),
     label: str = Query("clip"),
+    user: dict = Depends(require_user),
 ):
     """Trim the source video to [start, end] seconds and return as MP4.
 
@@ -63,7 +66,8 @@ async def get_clip(
 
     pool = get_pool()
     row = await pool.fetchrow(
-        "SELECT original_filename FROM uploads WHERE video_id=$1", video_id
+        "SELECT original_filename FROM uploads WHERE video_id=$1 AND user_id=$2",
+        video_id, user["user_id"],
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Video not found")

@@ -27,6 +27,12 @@ def _stub_app_imports():
         uq_stub.get_active_job_id = lambda: None
         uq_stub.get_queue_position = lambda video_id: None
         sys.modules["app.upload_queue"] = uq_stub
+    if "app.auth" not in sys.modules:
+        auth_stub = types.ModuleType("app.auth")
+        auth_stub.require_user = lambda: {"user_id": "test-user", "email": "t@example.com"}
+        auth_stub.verify_ws_token = lambda token: {"user_id": "test-user"}
+        auth_stub.user_short = lambda uid: "deadbeef"
+        sys.modules["app.auth"] = auth_stub
     # Stub fastapi if not installed
     if "fastapi" not in sys.modules:
         fastapi_stub = types.ModuleType("fastapi")
@@ -50,11 +56,13 @@ def _stub_app_imports():
         fastapi_stub.APIRouter = _APIRouter
         fastapi_stub.UploadFile = object
         fastapi_stub.Form = lambda **kw: None
+        fastapi_stub.Depends = lambda dep=None: None
         sys.modules["fastapi"] = fastapi_stub
 
         # fastapi.responses stub
         fastapi_responses = types.ModuleType("fastapi.responses")
         fastapi_responses.Response = object
+        fastapi_responses.FileResponse = object
         sys.modules["fastapi.responses"] = fastapi_responses
 
 
@@ -104,9 +112,10 @@ class ProgressEndpointTests(unittest.TestCase):
 
     def _call(self, pool_row, env_vlm="false"):
         pool = FakePool(pool_row)
+        user = {"user_id": "test-user", "email": "t@example.com"}
         with patch("backend.app.uploads_list.get_pool", return_value=pool), \
              patch.dict(os.environ, {"VLM_ENABLED": env_vlm}):
-            return _run(get_upload_progress("vid1"))
+            return _run(get_upload_progress("vid1", user))
 
     # ------------------------------------------------------------------
     # zeros: upload exists, no events, no incidents
@@ -167,11 +176,12 @@ class ProgressEndpointTests(unittest.TestCase):
     # 404: upload not found
     # ------------------------------------------------------------------
     def test_404_for_missing_upload(self):
-        pool = FakePool(None)  # fetchrow returns None → upload not found
+        pool = FakePool(None)  # fetchrow returns None → upload not found (or not owned)
+        user = {"user_id": "test-user"}
         with patch("backend.app.uploads_list.get_pool", return_value=pool), \
              patch.dict(os.environ, {"VLM_ENABLED": "false"}):
             with self.assertRaises(HTTPException) as ctx:
-                _run(get_upload_progress("missing"))
+                _run(get_upload_progress("missing", user))
         self.assertEqual(ctx.exception.status_code, 404)
 
     # ------------------------------------------------------------------
@@ -188,9 +198,10 @@ class ProgressEndpointTests(unittest.TestCase):
     def test_vlm_enabled_false_when_env_missing(self):
         env = {k: v for k, v in os.environ.items() if k != "VLM_ENABLED"}
         pool = FakePool(_make_row())
+        user = {"user_id": "test-user"}
         with patch("backend.app.uploads_list.get_pool", return_value=pool), \
              patch.dict(os.environ, env, clear=True):
-            result = _run(get_upload_progress("vid1"))
+            result = _run(get_upload_progress("vid1", user))
         self.assertFalse(result["vlm_enabled"])
 
     # ------------------------------------------------------------------

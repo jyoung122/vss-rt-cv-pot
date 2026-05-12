@@ -5,9 +5,10 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.auth import require_user
 from app.db import get_pool
 from app.logging_config import Timer, log_context, new_run_id
 
@@ -128,21 +129,28 @@ _RULE_SEVERITY = {
 
 
 @router.get("/api/analytics/summary")
-async def get_analytics_summary():
-    """Aggregated analytics data: totals, daily trend (30d), heatmap, per-rule breakdown."""
+async def get_analytics_summary(user: dict = Depends(require_user)):
+    """Aggregated analytics data: totals, daily trend (30d), heatmap, per-rule breakdown.
+
+    Scoped to the caller's uploads — JOIN to uploads.user_id everywhere.
+    """
     pool = get_pool()
+    uid = user["user_id"]
 
     # Overall totals
     agg = await pool.fetchrow(
         """
         SELECT
-            COUNT(*)                                                                  AS total,
-            COUNT(*) FILTER (WHERE vlm_status = 'done' AND vlm_verdict = 'confirmed') AS vlm_confirmed,
-            COUNT(*) FILTER (WHERE vlm_status = 'done' AND vlm_verdict = 'rejected')  AS vlm_rejected,
-            COUNT(*) FILTER (WHERE vlm_status = 'pending')                            AS vlm_pending,
-            COUNT(*) FILTER (WHERE vlm_status = 'done')                               AS vlm_done
-        FROM incidents
-        """
+            COUNT(*)                                                                    AS total,
+            COUNT(*) FILTER (WHERE i.vlm_status = 'done' AND i.vlm_verdict = 'confirmed') AS vlm_confirmed,
+            COUNT(*) FILTER (WHERE i.vlm_status = 'done' AND i.vlm_verdict = 'rejected')  AS vlm_rejected,
+            COUNT(*) FILTER (WHERE i.vlm_status = 'pending')                              AS vlm_pending,
+            COUNT(*) FILTER (WHERE i.vlm_status = 'done')                                 AS vlm_done
+        FROM incidents i
+        JOIN uploads u ON u.video_id = i.video_id
+        WHERE u.user_id = $1
+        """,
+        uid,
     )
     total = int(agg["total"])
     vlm_done = int(agg["vlm_done"])
@@ -152,15 +160,18 @@ async def get_analytics_summary():
     rule_rows = await pool.fetch(
         """
         SELECT
-            rule_id,
-            COUNT(*)                                                                  AS total,
-            COUNT(*) FILTER (WHERE vlm_status = 'done' AND vlm_verdict = 'confirmed') AS vlm_confirmed,
-            COUNT(*) FILTER (WHERE vlm_status = 'done' AND vlm_verdict = 'rejected')  AS vlm_rejected,
-            COUNT(*) FILTER (WHERE vlm_status = 'done')                               AS vlm_done,
-            ROUND(AVG(confidence)::numeric, 3)                                        AS avg_confidence
-        FROM incidents
-        GROUP BY rule_id
-        """
+            i.rule_id,
+            COUNT(*)                                                                    AS total,
+            COUNT(*) FILTER (WHERE i.vlm_status = 'done' AND i.vlm_verdict = 'confirmed') AS vlm_confirmed,
+            COUNT(*) FILTER (WHERE i.vlm_status = 'done' AND i.vlm_verdict = 'rejected')  AS vlm_rejected,
+            COUNT(*) FILTER (WHERE i.vlm_status = 'done')                                 AS vlm_done,
+            ROUND(AVG(i.confidence)::numeric, 3)                                          AS avg_confidence
+        FROM incidents i
+        JOIN uploads u ON u.video_id = i.video_id
+        WHERE u.user_id = $1
+        GROUP BY i.rule_id
+        """,
+        uid,
     )
     by_rule = [
         {
@@ -177,7 +188,14 @@ async def get_analytics_summary():
 
     # By severity
     sev_rows = await pool.fetch(
-        "SELECT severity, COUNT(*) AS count FROM incidents GROUP BY severity"
+        """
+        SELECT i.severity, COUNT(*) AS count
+        FROM incidents i
+        JOIN uploads u ON u.video_id = i.video_id
+        WHERE u.user_id = $1
+        GROUP BY i.severity
+        """,
+        uid,
     )
     by_severity = [{"severity": r["severity"], "count": int(r["count"])} for r in sev_rows]
 
@@ -185,14 +203,16 @@ async def get_analytics_summary():
     daily_rows = await pool.fetch(
         """
         SELECT
-            date_trunc('day', created_at AT TIME ZONE 'UTC')::date AS day,
-            rule_id,
+            date_trunc('day', i.created_at AT TIME ZONE 'UTC')::date AS day,
+            i.rule_id,
             COUNT(*) AS count
-        FROM incidents
-        WHERE created_at >= now() - interval '30 days'
+        FROM incidents i
+        JOIN uploads u ON u.video_id = i.video_id
+        WHERE u.user_id = $1 AND i.created_at >= now() - interval '30 days'
         GROUP BY 1, 2
         ORDER BY 1
-        """
+        """,
+        uid,
     )
     # Build a dict keyed by date string
     daily_map: dict[str, dict] = {}
@@ -205,12 +225,15 @@ async def get_analytics_summary():
     heat_rows = await pool.fetch(
         """
         SELECT
-            ((EXTRACT(DOW FROM created_at AT TIME ZONE 'UTC')::int + 6) % 7) AS dow,
-            EXTRACT(HOUR FROM created_at AT TIME ZONE 'UTC')::int             AS hour,
-            COUNT(*)                                                           AS count
-        FROM incidents
+            ((EXTRACT(DOW FROM i.created_at AT TIME ZONE 'UTC')::int + 6) % 7) AS dow,
+            EXTRACT(HOUR FROM i.created_at AT TIME ZONE 'UTC')::int             AS hour,
+            COUNT(*)                                                             AS count
+        FROM incidents i
+        JOIN uploads u ON u.video_id = i.video_id
+        WHERE u.user_id = $1
         GROUP BY 1, 2
-        """
+        """,
+        uid,
     )
     # 7 × 24 grid, dow 0=Mon
     heatmap = [[0] * 24 for _ in range(7)]
@@ -231,10 +254,15 @@ async def get_analytics_summary():
 
 
 @router.get("/api/incidents/catalog")
-async def get_incident_catalog():  # noqa: C901
-    """Aggregate stats per rule type, current thresholds, and 5 most-recent incidents each."""
+async def get_incident_catalog(user: dict = Depends(require_user)):  # noqa: C901
+    """Aggregate stats per rule type, current thresholds, and 5 most-recent incidents each.
+
+    Aggregates and recent-incident snippets are scoped to the caller's uploads.
+    Thresholds (`rule_config`) remain global — they are admin-style rule definitions, not per-user data.
+    """
     from app.incident_worker import DEFAULT_THRESHOLDS, THRESHOLD_SCHEMA
     pool = get_pool()
+    uid = user["user_id"]
 
     # Load all rule_config rows in one query
     cfg_rows = await pool.fetch("SELECT rule_id, thresholds, updated_at FROM rule_config")
@@ -248,17 +276,20 @@ async def get_incident_catalog():  # noqa: C901
     agg_rows = await pool.fetch(
         """
         SELECT
-            rule_id,
-            COUNT(*)                                                        AS total,
-            ROUND(AVG(confidence)::numeric, 3)                              AS avg_confidence,
-            COUNT(*) FILTER (WHERE vlm_status = 'done' AND vlm_verdict = 'confirmed') AS vlm_confirmed,
-            COUNT(*) FILTER (WHERE vlm_status = 'done' AND vlm_verdict = 'rejected')  AS vlm_rejected,
-            COUNT(*) FILTER (WHERE vlm_status = 'pending')                 AS vlm_pending,
-            COUNT(*) FILTER (WHERE vlm_status = 'done')                    AS vlm_done,
-            MAX(created_at)                                                 AS last_detected_at
-        FROM incidents
-        GROUP BY rule_id
-        """
+            i.rule_id,
+            COUNT(*)                                                                    AS total,
+            ROUND(AVG(i.confidence)::numeric, 3)                                        AS avg_confidence,
+            COUNT(*) FILTER (WHERE i.vlm_status = 'done' AND i.vlm_verdict = 'confirmed') AS vlm_confirmed,
+            COUNT(*) FILTER (WHERE i.vlm_status = 'done' AND i.vlm_verdict = 'rejected')  AS vlm_rejected,
+            COUNT(*) FILTER (WHERE i.vlm_status = 'pending')                              AS vlm_pending,
+            COUNT(*) FILTER (WHERE i.vlm_status = 'done')                                 AS vlm_done,
+            MAX(i.created_at)                                                             AS last_detected_at
+        FROM incidents i
+        JOIN uploads u ON u.video_id = i.video_id
+        WHERE u.user_id = $1
+        GROUP BY i.rule_id
+        """,
+        uid,
     )
     agg = {r["rule_id"]: r for r in agg_rows}
 
@@ -272,15 +303,17 @@ async def get_incident_catalog():  # noqa: C901
 
         recent_rows = await pool.fetch(
             """
-            SELECT id, video_id, rule_id, severity, confidence,
-                   t_start_s, t_end_s, track_ids, metadata, created_at,
-                   vlm_status, vlm_verdict, vlm_confidence
-            FROM incidents
-            WHERE rule_id = $1
-            ORDER BY created_at DESC
+            SELECT i.id, i.video_id, i.rule_id, i.severity, i.confidence,
+                   i.t_start_s, i.t_end_s, i.track_ids, i.metadata, i.created_at,
+                   i.vlm_status, i.vlm_verdict, i.vlm_confidence
+            FROM incidents i
+            JOIN uploads u ON u.video_id = i.video_id
+            WHERE i.rule_id = $1 AND u.user_id = $2
+            ORDER BY i.created_at DESC
             LIMIT 5
             """,
             rule_id,
+            uid,
         ) if total > 0 else []
 
         defaults = DEFAULT_THRESHOLDS[rule_id]
@@ -323,10 +356,13 @@ async def get_incident_catalog():  # noqa: C901
 
 
 @router.get("/api/uploads/{video_id}/incidents")
-async def get_incidents(video_id: str):
+async def get_incidents(video_id: str, user: dict = Depends(require_user)):
     pool = get_pool()
 
-    exists = await pool.fetchval("SELECT 1 FROM uploads WHERE video_id=$1", video_id)
+    exists = await pool.fetchval(
+        "SELECT 1 FROM uploads WHERE video_id=$1 AND user_id=$2",
+        video_id, user["user_id"],
+    )
     if not exists:
         raise HTTPException(status_code=404, detail="Upload not found")
 
@@ -348,8 +384,12 @@ async def get_incidents(video_id: str):
 
 
 @router.get("/api/incidents/feed")
-async def get_incidents_feed(limit: int = 100, offset: int = 0):
-    """Cross-upload incident feed, newest first, joined with upload filename."""
+async def get_incidents_feed(
+    limit: int = 100,
+    offset: int = 0,
+    user: dict = Depends(require_user),
+):
+    """Cross-upload incident feed (scoped to caller), newest first, joined with upload filename."""
     pool = get_pool()
     rows = await pool.fetch(
         """
@@ -360,13 +400,22 @@ async def get_incidents_feed(limit: int = 100, offset: int = 0):
                i.created_at
         FROM incidents i
         JOIN uploads u ON u.video_id = i.video_id
+        WHERE u.user_id = $1
         ORDER BY i.created_at DESC
-        LIMIT $1 OFFSET $2
+        LIMIT $2 OFFSET $3
         """,
+        user["user_id"],
         limit,
         offset,
     )
-    total = await pool.fetchval("SELECT COUNT(*) FROM incidents")
+    total = await pool.fetchval(
+        """
+        SELECT COUNT(*) FROM incidents i
+        JOIN uploads u ON u.video_id = i.video_id
+        WHERE u.user_id = $1
+        """,
+        user["user_id"],
+    )
     return {
         "total": total,
         "limit": limit,
@@ -392,8 +441,8 @@ async def get_incidents_feed(limit: int = 100, offset: int = 0):
 
 
 @router.get("/api/incidents/{incident_id}")
-async def get_incident(incident_id: str):
-    """Get a single incident by ID, joined with upload filename."""
+async def get_incident(incident_id: str, user: dict = Depends(require_user)):
+    """Get a single incident by ID, joined with upload filename. Scoped to caller."""
     pool = get_pool()
     try:
         row = await pool.fetchrow(
@@ -407,9 +456,10 @@ async def get_incident(incident_id: str):
                    i.created_at
             FROM incidents i
             JOIN uploads u ON u.video_id = i.video_id
-            WHERE i.id = $1::uuid
+            WHERE i.id = $1::uuid AND u.user_id = $2
             """,
             incident_id,
+            user["user_id"],
         )
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid incident ID")
@@ -442,7 +492,7 @@ async def get_incident(incident_id: str):
 
 
 @router.post("/api/uploads/{video_id}/analyze")
-async def analyze_upload(video_id: str):
+async def analyze_upload(video_id: str, user: dict = Depends(require_user)):
     from app.incident_worker import run_incident_detection
     from app.vlm_validator import run_vlm_validation
 
@@ -453,7 +503,10 @@ async def analyze_upload(video_id: str):
         timer = Timer()
         log.info("analyze.run.start")
 
-        exists = await pool.fetchval("SELECT 1 FROM uploads WHERE video_id=$1", video_id)
+        exists = await pool.fetchval(
+            "SELECT 1 FROM uploads WHERE video_id=$1 AND user_id=$2",
+            video_id, user["user_id"],
+        )
         if not exists:
             log.warning("analyze.upload.not_found")
             raise HTTPException(status_code=404, detail="Upload not found")

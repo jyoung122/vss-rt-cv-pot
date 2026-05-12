@@ -81,8 +81,8 @@ Reference (don't trust as current state): [`FUTURE_STATE_POT_ARCHIVED.md`](FUTUR
 - **Scenario** = the UI surface for incidents on the detail page. The tab is live (no longer disabled).
 
 **Other**
-- No auth (dropped in the pivot). Don't add login flows.
-- Defaults assume single-tenant single-host. Don't generalize prematurely.
+- Auth: Supabase JWT (HS256, `aud=authenticated`). Frontend middleware injects `Authorization: Bearer …` into `/api/*`; backend `require_user` validates. Every upload row is scoped by `user_id` (= JWT `sub`), so users only see their own data. WS `/ws/events` takes `?token=…` (browsers can't set headers on WS upgrade). Legacy rows with NULL `user_id` are invisible to all users — handled separately in Phase E. See [`docs/v1/phases/multi-user-uploads.md`](docs/v1/phases/multi-user-uploads.md).
+- Defaults assume single-tenant single-host (one GPU pipeline, serial processing). Don't generalize prematurely.
 - Repo dir rename to `aims/` is Phase 4. Don't rename docker container names / volumes ahead of that — it'll churn the diff.
 
 ## Run it

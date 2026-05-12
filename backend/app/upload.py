@@ -6,10 +6,11 @@ import logging
 import time
 import subprocess
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, Form, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, Form, HTTPException
 from fastapi.responses import JSONResponse
 import httpx
 
+from app.auth import require_user, user_short
 from app.logging_config import Timer, log_context, new_run_id
 from app.sdr import remove_active_stream, register_stream
 from app.redis_client import clear_stream
@@ -113,7 +114,11 @@ def _probe_video(path: Path) -> tuple[float | None, int | None, int | None, floa
 
 
 @router.post("/api/upload")
-async def upload_video(file: UploadFile, prompt: str | None = Form(default=None)):
+async def upload_video(
+    file: UploadFile,
+    prompt: str | None = Form(default=None),
+    user: dict = Depends(require_user),
+):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
 
@@ -133,10 +138,13 @@ async def upload_video(file: UploadFile, prompt: str | None = Form(default=None)
     video_dir = Path(DATA_DIR) / "videos"
     video_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate a server-side unique video_id from the stem + timestamp
+    # Generate a server-side unique video_id from the stem + owner hash + timestamp.
+    # Owner hash makes ids non-trivially-guessable across tenants and gives operators
+    # a quick visual ownership cue in logs.
     raw_stem = Path(file.filename).stem
     safe_stem = re.sub(r"[^a-zA-Z0-9_-]", "_", raw_stem)
-    video_id = f"{safe_stem}-{int(time.time())}"
+    user_id = user["user_id"]
+    video_id = f"{safe_stem}-{user_short(user_id)}-{int(time.time())}"
     run_id = new_run_id()
 
     with log_context(run_id=run_id, video_id=video_id):
@@ -175,8 +183,8 @@ async def upload_video(file: UploadFile, prompt: str | None = Form(default=None)
         pool = get_pool()
         await pool.execute(
             """
-            INSERT INTO uploads (video_id, original_filename, prompt, duration_s, width, height, fps, size_bytes)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO uploads (video_id, original_filename, prompt, duration_s, width, height, fps, size_bytes, user_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             """,
             video_id,
             file.filename,
@@ -186,6 +194,7 @@ async def upload_video(file: UploadFile, prompt: str | None = Form(default=None)
             height,
             fps,
             written,
+            user_id,
         )
 
         # Extract thumbnail — best-effort, non-fatal

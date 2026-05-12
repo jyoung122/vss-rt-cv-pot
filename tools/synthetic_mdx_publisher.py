@@ -147,7 +147,7 @@ def _format_object(t: Track, frame_w: int, frame_h: int) -> str:
 
 
 async def _ensure_upload(pg_url: str, video_id: str, duration: float, fps: float,
-                         width: int, height: int) -> None:
+                         width: int, height: int, user_id: str | None) -> None:
     import asyncpg
 
     conn = await asyncpg.connect(pg_url)
@@ -156,12 +156,12 @@ async def _ensure_upload(pg_url: str, video_id: str, duration: float, fps: float
             """
             INSERT INTO uploads
                 (video_id, original_filename, prompt, duration_s, width, height,
-                 fps, size_bytes, uploaded_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                 fps, size_bytes, uploaded_at, user_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9)
             ON CONFLICT (video_id) DO NOTHING
             """,
             video_id, f"{video_id}.synthetic.mp4", "synthetic publisher",
-            duration, width, height, fps, 0,
+            duration, width, height, fps, 0, user_id,
         )
     finally:
         await conn.close()
@@ -232,8 +232,8 @@ async def _run_collision_scenario(args: argparse.Namespace) -> None:
 async def run(args: argparse.Namespace) -> None:
     if args.ensure_upload:
         await _ensure_upload(args.pg_url, args.video_id, args.duration, args.fps,
-                             args.width, args.height)
-        print(f"[ok] ensured uploads row for {args.video_id}")
+                             args.width, args.height, args.user_id)
+        print(f"[ok] ensured uploads row for {args.video_id} (user_id={args.user_id or 'NULL'})")
 
     if args.scenario == "collision":
         await _run_collision_scenario(args)
@@ -299,6 +299,9 @@ def main() -> None:
     p.add_argument("--height", type=int, default=1080)
     p.add_argument("--max-tracks", type=int, default=6)
     p.add_argument("--sensor-id", default="synthetic-0")
+    p.add_argument("--user-id", default=None,
+                   help="Supabase user_id (sub) to attach to the synthetic uploads row; "
+                        "match your JWT 'sub' to see the row in the UI.")
     p.add_argument("--ensure-upload", action="store_true",
                    help="INSERT an uploads row first (uses DATABASE_URL or --pg-url)")
     p.add_argument("--scenario", choices=["collision"], default=None,
