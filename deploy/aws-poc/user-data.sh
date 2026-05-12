@@ -1,16 +1,14 @@
 #!/bin/bash
-# EC2 user-data for the AWS edge box (Split A: AWS = Caddy + TLS only).
-# The GPU stack runs on Brev; this box reverse-proxies to it over Tailscale.
-# Replace tskey-auth-kVrAB3jeRa11CNTRL-53pwJP5gEnX9BNUNLhYmnXu3YhCW33xJ and aims.synch-solutions.com before pasting into launch.
+# EC2 user-data for the single-host GPU box (full AIMS stack).
+# Replace __NGC_API_KEY__ and __OWNER__ (GitHub user/org) before pasting into launch.
 
 set -euxo pipefail
-exec > >(tee -a /var/log/aims-edge-bootstrap.log) 2>&1
+exec > >(tee -a /var/log/aims-bootstrap.log) 2>&1
 
-TS_AUTHKEY="tskey-auth-kVrAB3jeRa11CNTRL-53pwJP5gEnX9BNUNLhYmnXu3YhCW33xJ"
-PUBLIC_HOSTNAME="aims.synch-solutions.com"
-GPU_HOST="aims-poc-gpu"   # Tailscale MagicDNS name of the Brev box
+NGC_API_KEY="__NGC_API_KEY__"
+REPO_URL="https://github.com/__OWNER__/vss-rt-cv-pot.git"
 
-# 1. Docker + Compose
+# 1. Docker + Compose (DLAMI may already have Docker; install if missing)
 if ! command -v docker >/dev/null 2>&1; then
   apt-get update
   apt-get install -y ca-certificates curl gnupg
@@ -22,61 +20,28 @@ if ! command -v docker >/dev/null 2>&1; then
   apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 fi
 
-# 2. Tailscale
-if ! command -v tailscale >/dev/null 2>&1; then
-  curl -fsSL https://tailscale.com/install.sh | sh
-fi
-tailscale up --auth-key="${TS_AUTHKEY}" --hostname=aims-poc-edge --accept-routes --accept-dns=true --ssh=false || true
+# Ensure ubuntu user can run docker without sudo
+usermod -aG docker ubuntu || true
 
-# 3. Caddy config and runtime
-mkdir -p /opt/caddy
-cat > /opt/caddy/Caddyfile <<CADDY
-${PUBLIC_HOSTNAME} {
-	encode zstd gzip
-	request_body { max_size 10GB }
+# 2. NGC login (as ubuntu so compose pulls work without sudo)
+echo "${NGC_API_KEY}" | sudo -u ubuntu docker login nvcr.io -u "\$oauthtoken" --password-stdin
+# Also copy creds to root in case of sudo pulls
+mkdir -p /root/.docker
+cp /home/ubuntu/.docker/config.json /root/.docker/config.json || true
 
-	@api path /api/* /uploads/* /events/* /healthz /ws/*
-	reverse_proxy @api ${GPU_HOST}:8080
+# 3. Clone repo
+mkdir -p /opt/aims
+chown ubuntu:ubuntu /opt/aims
+sudo -u ubuntu git clone "${REPO_URL}" /opt/aims
 
-	reverse_proxy ${GPU_HOST}:3000
-}
-CADDY
+# 4. Data directory
+mkdir -p /data/videos /data/models
+chown -R ubuntu:ubuntu /data
 
-cat > /opt/caddy/docker-compose.yml <<COMPOSE
-services:
-  caddy:
-    image: caddy:2
-    container_name: aims-caddy
-    restart: unless-stopped
-    network_mode: host
-    volumes:
-      - /opt/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-volumes:
-  caddy_data:
-  caddy_config:
-COMPOSE
-
-# 4. systemd unit for Caddy
-cat > /etc/systemd/system/aims-edge.service <<UNIT
-[Unit]
-Description=AIMS edge (Caddy reverse proxy)
-After=docker.service tailscaled.service network-online.target
-Requires=docker.service
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-WorkingDirectory=/opt/caddy
-ExecStart=/usr/bin/docker compose up -d
-ExecStop=/usr/bin/docker compose down
-
-[Install]
-WantedBy=multi-user.target
-UNIT
+# 5. Systemd unit (starts compose on boot/restart)
+cp /opt/aims/deploy/aws-poc/aims.service /etc/systemd/system/aims.service
 systemctl daemon-reload
-systemctl enable --now aims-edge.service
+systemctl enable aims.service
+# Do NOT start it now — operator must fill .env first.
 
-echo "Edge bootstrap complete. Caddy will reach the GPU box at ${GPU_HOST} via Tailscale."
+echo "Bootstrap complete. Next: SSH in, fill /opt/aims/.env, then: sudo systemctl start aims"

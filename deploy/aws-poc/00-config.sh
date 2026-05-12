@@ -5,13 +5,13 @@ export AWS_REGION="us-west-2"
 export PROJECT_TAG="aims-poc"
 
 # Instance
-export INSTANCE_TYPE="t3.small"            # CPU-only edge: just Caddy + TLS, reverse-proxies to GPU box via Tailscale
-export ROOT_VOLUME_GB=20
+export INSTANCE_TYPE="g6e.xlarge"         # single-host GPU: full AIMS stack (1× L40S 48 GB, 4 vCPU, 32 GB RAM)
+export ROOT_VOLUME_GB=500
 export KEY_PAIR_NAME="aims-poc"          # must already exist in EC2 → Key Pairs (us-west-2)
 
-# AMI: standard Ubuntu 22.04 (no GPU/DLAMI needed for the edge box)
-# Resolved at launch time via name filter (Canonical owner).
-export AMI_NAME_FILTER="ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"
+# AMI: Deep Learning OSS Nvidia Driver AMI (Ubuntu 22.04) — NVIDIA drivers + container toolkit pre-installed.
+# Resolved at launch time via name filter (Amazon owner).
+export AMI_NAME_FILTER="Deep Learning OSS Nvidia Driver AMI GPU PyTorch*Ubuntu*22.04*"
 
 # Networking — leave subnet blank to auto-pick the default-VPC public subnet in AZ a
 export SUBNET_ID=""

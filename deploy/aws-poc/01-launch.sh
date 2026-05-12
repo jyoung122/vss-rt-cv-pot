@@ -19,7 +19,7 @@ echo "==> Resolving DLAMI image id"
 AMI_ID="${AMI_ID:-}"
 if [ -z "$AMI_ID" ]; then
   AMI_ID=$(_aws ec2 describe-images \
-    --owners 099720109477 \
+    --owners amazon \
     --filters "Name=name,Values=${AMI_NAME_FILTER}" "Name=state,Values=available" "Name=architecture,Values=x86_64" \
     --query 'reverse(sort_by(Images, &CreationDate))[0].ImageId' \
     --output text)
