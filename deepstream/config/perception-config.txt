@@ -37,6 +37,14 @@ batched-push-timeout=40000
 width=960
 height=544
 enable-padding=0
+## Prevent pipeline EOS from propagating when all file sources finish.
+## Required for nvmultiurisrcbin REST-server mode: without this, the GStreamer
+## pipeline enters a terminal EOS state after the first source completes and
+## all subsequent /stream/add calls return 200 but no source ever attaches.
+drop-pipeline-eos=1
+## Treat sources as live so the muxer batches available buffers even when
+## fewer than max-batch-size sources are active (recommended for nvmultiurisrcbin).
+live-source=1
 
 [primary-gie]
 enable=1
