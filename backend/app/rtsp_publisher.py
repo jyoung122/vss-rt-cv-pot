@@ -99,6 +99,13 @@ async def wait_until_publishing(
         while True:
             try:
                 resp = await client.get(url)
+                if resp.status_code == 401:
+                    # mediamtx authInternalUsers doesn't grant action:api.
+                    # Don't waste 10s timing out — this is a config bug.
+                    raise RuntimeError(
+                        "mediamtx HTTP API returned 401 — add `action: api` to "
+                        "authInternalUsers in mediamtx.yml"
+                    )
                 if resp.status_code == 200:
                     data = resp.json()
                     # mediamtx v1.x reports `sourceReady` (bool) or `ready` (legacy)
@@ -108,6 +115,8 @@ async def wait_until_publishing(
                             extra={"video_id": video_id},
                         )
                         return True
+            except RuntimeError:
+                raise
             except Exception as e:
                 log.debug(
                     "rtsp_publisher.poll.transient",

@@ -7,6 +7,22 @@
 api: yes
 apiAddress: :9997
 
+# mediamtx v1.18+ ships a restrictive default `any` user that only allows
+# publish/read — the HTTP API requires the `api` action explicitly. The
+# entire stack runs on the internal vss-net bridge with no host-port
+# exposure for mediamtx (compose has no `ports:` block), so we can grant
+# the trusted-network user full access without exposing anything publicly.
+authInternalUsers:
+  - user: any
+    pass:
+    permissions:
+      - action: publish
+      - action: read
+      - action: playback
+      - action: api
+      - action: metrics
+      - action: pprof
+
 paths:
   all_others:
     source: publisher
