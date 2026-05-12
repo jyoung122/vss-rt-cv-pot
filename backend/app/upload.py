@@ -12,7 +12,6 @@ import httpx
 
 from app.auth import require_user, user_short
 from app.logging_config import Timer, log_context, new_run_id
-from app.sdr import remove_active_stream, register_stream
 from app.redis_client import clear_stream
 from app.db import get_pool
 from app.upload_queue import enqueue, get_queue_depth, QueueFull, UPLOAD_QUEUE_MAX_DEPTH
@@ -201,10 +200,6 @@ async def upload_video(
         await asyncio.get_event_loop().run_in_executor(
             None, _extract_thumbnail, file_path, video_id
         )
-
-        stream_url = f"file:///data/videos/{video_id}{ext}"
-        await remove_active_stream()
-        await register_stream(video_id, stream_url)
 
         # Enqueue for serial processing (redis-set / url-file / container-restart)
         try:

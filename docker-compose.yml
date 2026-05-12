@@ -131,6 +131,7 @@ services:
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       SUPABASE_JWT_SECRET: ${JWT_SECRET}
+      MEDIAMTX_URL: rtsp://mediamtx:8554
     volumes:
       - ${DATA_DIR}/videos:/data/videos
       - /var/run/docker.sock:/var/run/docker.sock
@@ -138,6 +139,8 @@ services:
       redis:
         condition: service_healthy
       sdr:
+        condition: service_started
+      mediamtx:
         condition: service_started
     networks:
       - vss-net
@@ -206,6 +209,15 @@ services:
       timeout: 10s
       retries: 5
       start_period: 10m
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: vss-mediamtx
+    restart: unless-stopped
+    networks: [vss-net]
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+    # No host port exposure — internal only; backend reaches it by service name
 
 networks:
   vss-net:
