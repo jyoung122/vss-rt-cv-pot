@@ -119,12 +119,16 @@ Do **not** fan out into N containers — GPU memory + engine duplication cost is
 - New `sdr.py` rewrite (or rename to `nvstreamer.py`): replaces the broken `POST /api/v1/file` calls with the real API: `POST /api/v1/sensor/add` with the validated payload schema (`name`, `sensorUrl`, `location`, `tags=""`, `username=""`, `password=""`), `DELETE /api/v1/sensor/<uuid>`, `GET /api/v1/sensor/list`. Returns the assigned proxy URL for the caller to hand to DeepStream.
 - Verify `mediamtx` is reachable from inside the NVStreamer container by service name (`rtsp://mediamtx:8554/...`) — both on the same compose network.
 
-### F2. Concurrency budget + admission control
+### F2. Concurrency budget + admission control *(shipped)*
 
-- New env: `MAX_CONCURRENT_STREAMS` (default 2).
-- `upload_queue.py`: replace single-active-job worker with a semaphore. Up to N `_process_job` coroutines run concurrently; each owns its own plateau watcher. `UPLOAD_QUEUE_MAX_DEPTH=10` stays — that's the backlog past parallel capacity.
-- **Delete** the `current_stream_url.txt` write and the `_restart_container` call ([upload_queue.py:184-190](../../../backend/app/upload_queue.py#L184-L190)). DeepStream stays running; sources are added/removed dynamically.
-- **Delete** `remove_active_stream()` from `upload.py` ([upload.py:206-207](../../../backend/app/upload.py#L206-L207)). Worker calls the new `nvstreamer.unregister_sensor(uuid)` + `rtsp_publisher.stop(video_id)` after plateau or hard timeout.
+- New env: `MAX_CONCURRENT_STREAMS` (default 2).  `DS_REST_URL` (default `http://vss-rt-cv:9000`).
+- `upload_queue.py`: replaced single-active-job serial worker with a semaphore-bounded concurrent fan-out. Up to N `_process_job` coroutines run concurrently; each owns its own plateau watcher and full teardown in a `finally` block.
+- **New module `backend/app/deepstream.py`**: wraps the `nvds_rest_server` REST API (`POST /api/v1/stream/add`, `POST /api/v1/stream/remove`, `GET /api/v1/stream/get-stream-info`, `GET /api/v1/health/get-dsready-state`). DeepStream stays running; sources are added/removed dynamically — no container restart.
+- **Deleted** `_docker_api` / `_restart_container` helpers and the `current_stream_url.txt` write from `upload_queue.py`. `ds-start.sh` no longer reads the URL file; a comment marks the retirement.
+- **DeepStream config** (`deepstream/config/perception-config.txt`): replaced static `[source0]` block with `[source-list]` + `use-nvmultiurisrcbin=1` + `http-port=9000`. DS boots with an empty source list and accepts stream add/remove via the REST port. `batch-size` raised to 4 to match `num-source-bins`.
+- **NVStreamer proxy URL is optional**: `deepstream.add_stream` is called with `nvstreamer.get_proxy_url(sensor_uuid)` if available, falling back to the direct mediamtx publisher URL. DeepStream accepts either; the proxy URL is preferred but was unreachable in the Path B spike (transcript ae44e238b57ba49ec).
+- **Teardown order per job** (always in `finally`, in order): `deepstream.remove_stream` → `nvstreamer.unregister_sensor` (if registered) → `rtsp_publisher.stop` → `sem.release()` → `q.task_done()`.
+- `get_active_job_id()` backward-compat wrapper retained; `get_active_job_ids() -> frozenset[str]` added for N>1 consumers.
 
 ### F3. Per-video plateau watcher
 

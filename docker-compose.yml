@@ -132,6 +132,8 @@ services:
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       SUPABASE_JWT_SECRET: ${JWT_SECRET}
       MEDIAMTX_URL: rtsp://mediamtx:8554
+      DS_REST_URL: http://vss-rt-cv:9000
+      MAX_CONCURRENT_STREAMS: ${MAX_CONCURRENT_STREAMS:-2}
     volumes:
       - ${DATA_DIR}/videos:/data/videos
       - /var/run/docker.sock:/var/run/docker.sock
@@ -141,6 +143,8 @@ services:
       sdr:
         condition: service_started
       mediamtx:
+        condition: service_started
+      vss-rt-cv:
         condition: service_started
     networks:
       - vss-net
