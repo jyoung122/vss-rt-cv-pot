@@ -39,6 +39,7 @@ def _stub_app_imports():
         pub_stub.start = MagicMock(return_value="rtsp://mediamtx:8554/vid")
         pub_stub.stop = MagicMock()
         pub_stub.is_alive = MagicMock(return_value=False)
+        pub_stub.wait_until_publishing = AsyncMock(return_value=True)
         sys.modules["app.rtsp_publisher"] = pub_stub
 
     # app.deepstream
@@ -303,6 +304,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         nv_mod.unregister_sensor = AsyncMock()
         nv_mod.get_proxy_url = AsyncMock(return_value=None)
         pub_mod.start = MagicMock(return_value="rtsp://mediamtx:8554/vid1")
+        pub_mod.wait_until_publishing = AsyncMock(return_value=True)
         pub_mod.stop = MagicMock()
 
         # Use a pool that returns an event_count that causes plateau quickly
@@ -335,6 +337,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         nv_mod.register_sensor = AsyncMock(side_effect=RuntimeError("NVStreamer down"))
         nv_mod.unregister_sensor = AsyncMock()
         pub_mod.start = MagicMock(return_value="rtsp://mediamtx:8554/vid1")
+        pub_mod.wait_until_publishing = AsyncMock(return_value=True)
         pub_mod.stop = MagicMock()
 
         pool = _FakePool()
@@ -365,6 +368,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         nv_mod.register_sensor = AsyncMock(return_value="should-not-be-called-uuid")
         nv_mod.unregister_sensor = AsyncMock()
         pub_mod.start = MagicMock(side_effect=RuntimeError("ffmpeg not found"))
+        pub_mod.wait_until_publishing = AsyncMock(return_value=True)
         pub_mod.stop = MagicMock()
 
         pool = _FakePool()

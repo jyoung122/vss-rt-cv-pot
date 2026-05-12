@@ -1,3 +1,12 @@
+# Mediamtx config for the AIMS F2 RTSP shim.
+# The backend's rtsp_publisher.py spawns one ffmpeg publisher per upload,
+# pushing to rtsp://mediamtx:8554/<video_id>. The HTTP API on :9997 is used
+# by the backend to poll for "path is publishing" readiness before telling
+# DeepStream to pull (otherwise DS hits 404 in the race window).
+
+api: yes
+apiAddress: :9997
+
 paths:
   all_others:
     source: publisher

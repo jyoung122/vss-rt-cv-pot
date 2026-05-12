@@ -192,10 +192,17 @@ async def _process_job(job: dict, pool, sem: asyncio.Semaphore) -> None:
         async with r:
             await r.set("current_video_id", video_id)
 
-        # 2. Start RTSP publisher (ffmpeg → mediamtx)
+        # 2. Start RTSP publisher (ffmpeg → mediamtx) and wait until mediamtx
+        #    reports the path is publishing.  Without this, DeepStream races
+        #    the ffmpeg session setup and gets RTSP 404 (e2e af686fec4702b92f0).
         publisher_url = rtsp_publisher.start(video_id, file_path)
+        if not await rtsp_publisher.wait_until_publishing(video_id, timeout_s=10.0):
+            raise RuntimeError(
+                f"mediamtx did not report path {video_id} publishing within 10s"
+            )
 
-        # 3. Register with NVStreamer (RTSP path — no libav involvement)
+        # 3. Register with NVStreamer (sensor metadata only — its proxy doesn't
+        #    actually serve in this image; DS pulls from mediamtx directly).
         sensor_uuid = await nvstreamer.register_sensor(
             name=video_id, rtsp_url=publisher_url
         )
