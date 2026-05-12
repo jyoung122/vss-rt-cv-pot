@@ -19,6 +19,17 @@ http-port=9000
 num-source-bins=4
 max-batch-size=4
 
+# Default properties for sources added dynamically via the nvds REST server.
+# Required even though sources are added at runtime — the parser validates this
+# group exists when use-nvmultiurisrcbin=1.
+[source-attr-all]
+enable=1
+type=4
+num-sources=4
+gpu-id=0
+cudadec-memtype=0
+uri=rtsp://placeholder/stream
+
 [streammux]
 gpu-id=0
 batch-size=4
