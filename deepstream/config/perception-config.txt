@@ -12,17 +12,16 @@ columns=1
 width=1920
 height=1080
 
-[source0]
-enable=1
-type=3
-uri=STREAM_URI_PLACEHOLDER
-num-sources=1
-gpu-id=0
-cudadec-memtype=0
+[source-list]
+use-nvmultiurisrcbin=1
+http-ip=0.0.0.0
+http-port=9000
+num-source-bins=4
+max-batch-size=4
 
 [streammux]
 gpu-id=0
-batch-size=1
+batch-size=4
 batched-push-timeout=40000
 width=960
 height=544
@@ -31,7 +30,7 @@ enable-padding=0
 [primary-gie]
 enable=1
 gpu-id=0
-batch-size=1
+batch-size=4
 bbox-border-color0=1;0;0;1
 bbox-border-color1=0;1;1;1
 bbox-border-color2=0;0;1;1

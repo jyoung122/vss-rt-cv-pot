@@ -15,12 +15,11 @@ cp "$SRC_DIR/perception-config.txt" "$SRC_DIR/rtdetr-960x544.txt" "$SRC_DIR/rtde
 
 sed -i "s/REDIS_HOST_PLACEHOLDER/${REDIS_HOST:-redis}/g" "$CONFIG"
 
-URL_FILE=/data/videos/current_stream_url.txt
-if [ -f "$URL_FILE" ] && [ -s "$URL_FILE" ]; then
-  STREAM_URI=$(cat "$URL_FILE")
-  echo "[ds-start] Using stream URI from file: $STREAM_URI"
-fi
-sed -i "s|STREAM_URI_PLACEHOLDER|${STREAM_URI:-rtsp://nvstreamer:30554/placeholder}|g" "$CONFIG"
+# NOTE: current_stream_url.txt and the STREAM_URI_PLACEHOLDER sed substitution
+# are retired as of F2.  DeepStream now boots with an empty [source-list] and
+# sources are added/removed at runtime via the nvds_rest_server REST API
+# (POST /api/v1/stream/add, POST /api/v1/stream/remove) on port 9000.
+# The backend no longer restarts this container between uploads.
 
 # Model check: engine is built on first run from the .etlt source file.
 # Skip NGC download if either the pre-built engine or the source .etlt is present.
