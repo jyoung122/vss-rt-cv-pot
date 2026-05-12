@@ -18,6 +18,10 @@ services:
       JWT_EXP: 3600
     volumes:
       - supabase-db-data:/var/lib/postgresql/data
+      # Sets passwords for supabase internal users (auth_admin, storage_admin, etc.).
+      # supabase/postgres creates these roles without passwords; without this script
+      # running on first init, auth + storage services SASL-fail on connect.
+      - ./supabase/db/init/99-roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
     networks:
       - vss-net
     restart: unless-stopped
