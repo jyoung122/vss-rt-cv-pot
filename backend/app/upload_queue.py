@@ -171,8 +171,6 @@ async def _process_job(job: dict, pool, sem: asyncio.Semaphore) -> None:
     The semaphore slot is released in the finally block after all teardown
     completes, so the next job never starts before GPU-side resources are freed.
     """
-    import redis.asyncio as aioredis
-
     video_id: str = job["video_id"]
     file_path: str = job["file_path"]
     ext: str = job["ext"]
@@ -187,13 +185,8 @@ async def _process_job(job: dict, pool, sem: asyncio.Semaphore) -> None:
     stream_url: str | None = None
 
     try:
-        # 1. Set current_video_id in Redis (kept for event_indexer until F1 lands)
-        r = aioredis.from_url(REDIS_URL, decode_responses=True)
-        async with r:
-            await r.set("current_video_id", video_id)
-
-        # 2. Start RTSP publisher (ffmpeg → mediamtx) and wait until mediamtx
-        #    reports the path is publishing.  Without this, DeepStream races
+        # 1. Start RTSP publisher (ffmpeg → mediamtx) and wait until mediamtx
+        #    reports the path is publishing. Without this, DeepStream races
         #    the ffmpeg session setup and gets RTSP 404 (e2e af686fec4702b92f0).
         publisher_url = rtsp_publisher.start(video_id, file_path)
         if not await rtsp_publisher.wait_until_publishing(video_id, timeout_s=10.0):

@@ -105,7 +105,6 @@ async def run_indexer(redis_url: str) -> None:
                     now = time.monotonic()
                     if not force and now - last_health_log < HEALTH_LOG_INTERVAL_S:
                         return
-                    current_video_id = await r.get("current_video_id")
                     lag = await _stream_lag(r)
                     log.info(
                         "event_indexer.consumer.health",
@@ -113,7 +112,6 @@ async def run_indexer(redis_url: str) -> None:
                             "stream": STREAM_NAME,
                             "consumer_group": GROUP_NAME,
                             "consumer": CONSUMER_NAME,
-                            "video_id": current_video_id,
                             "event_count": stats["entries_read"],
                             "detection_count": stats["rows_inserted"],
                             "malformed_objects": stats["malformed_objects"],
@@ -150,16 +148,29 @@ async def run_indexer(redis_url: str) -> None:
 
                                 frame_id = int(meta.get("id", 0))
 
-                                # Determine which video this frame belongs to.
-                                current_video_id = await r.get("current_video_id")
+                                # F1: route every frame by msgconv's sensorId
+                                # (= camera_id we passed to /api/v1/stream/add =
+                                # our video_id). The previous Redis singleton
+                                # `current_video_id` was last-writer-wins and
+                                # broke under N>1 concurrent uploads.
+                                current_video_id = meta.get("sensorId")
                                 if not current_video_id:
-                                    # Orphan frame — nothing loaded yet.
+                                    # Orphan frame — no sensorId. Could be from
+                                    # the pre-F2 static [source0] config or a
+                                    # malformed payload.
                                     stats["orphan_entries"] += 1
                                     await r.xack(STREAM_NAME, GROUP_NAME, entry_id)
                                     continue
 
                                 fps = await _get_fps(pool, current_video_id)
-                                t_seconds = frame_id / (fps if fps else 30.0)
+                                if fps is None:
+                                    # sensorId doesn't match any known upload
+                                    # (stale source-add or pre-F2 sensor0).
+                                    # Drop to avoid FK violation on insert.
+                                    stats["orphan_entries"] += 1
+                                    await r.xack(STREAM_NAME, GROUP_NAME, entry_id)
+                                    continue
+                                t_seconds = frame_id / fps
 
                                 objects = meta.get("objects", [])
                                 rows = []
