@@ -5,15 +5,14 @@ own plateau watcher and teardown.  A semaphore caps the number of in-flight
 ``_process_job`` coroutines so NVStreamer / DeepStream are never over-subscribed.
 
 Data flow per job (F2):
-  1. rtsp_publisher.start(video_id, file_path)          → publisher_url
+  1. rtsp_publisher.start(video_id, file_path)          → publisher_url (mediamtx)
   2. nvstreamer.register_sensor(video_id, publisher_url) → sensor_uuid
-  3. nvstreamer.get_proxy_url(sensor_uuid)               → proxy_url or None
-     If proxy_url is None or unverified, fall back to publisher_url directly —
-     DeepStream accepts either; NVStreamer's proxy is preferred when available
-     but was unreachable in the Path B spike (transcript ae44e238b57ba49ec).
-  4. deepstream.add_stream(video_id, proxy_url or publisher_url)
-  5. plateau watcher polls events WHERE video_id=$1 per job
-  6. on plateau / hard timeout / exception:
+     (Metadata-only — NVStreamer's RTSP re-stream is broken in this image.)
+  3. deepstream.add_stream(video_id, publisher_url)
+     DS pulls directly from mediamtx; NVStreamer's proxy URL returns 404 in
+     this deployment (e2e test af648745d702108c9, spike ae44e238b57ba49ec).
+  4. plateau watcher polls events WHERE video_id=$1 per job
+  5. on plateau / hard timeout / exception:
      a. deepstream.remove_stream(video_id)
      b. nvstreamer.unregister_sensor(sensor_uuid)
      c. rtsp_publisher.stop(video_id)
@@ -201,12 +200,15 @@ async def _process_job(job: dict, pool, sem: asyncio.Semaphore) -> None:
             name=video_id, rtsp_url=publisher_url
         )
 
-        # 4. Resolve NVStreamer proxy URL; fall back to publisher_url if unavailable.
-        #    NVStreamer's proxy was unreachable in the Path B spike
-        #    (transcript ae44e238b57ba49ec) — treat it as optional.  DeepStream
-        #    accepts the direct mediamtx URL equally well.
-        proxy_url = await nvstreamer.get_proxy_url(sensor_uuid)
-        stream_url = proxy_url if proxy_url is not None else publisher_url
+        # 4. DeepStream consumes the mediamtx URL directly.
+        #    NVStreamer's proxy URL (rtsp://nvstreamer:30554/live/<uuid>) returns
+        #    404 in this deployment — the sensor registers, NVStreamer extracts
+        #    codec metadata via GStreamer DESCRIBE, but the re-stream is never
+        #    served (confirmed in the F2 e2e test af648745d702108c9 and the
+        #    Path B spike ae44e238b57ba49ec). Mediamtx serves cleanly, so DS
+        #    pulls from there directly; the NVStreamer sensor registration above
+        #    is kept for observability + future-proofing only.
+        stream_url = publisher_url
 
         # 5. Add source to DeepStream nvmultiurisrcbin via nvds_rest_server
         await deepstream.add_stream(video_id, stream_url)
