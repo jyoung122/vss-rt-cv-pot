@@ -231,7 +231,11 @@ async def _process_job(job: dict, pool, sem: asyncio.Semaphore) -> None:
         duration_s: float = (row["duration_s"] if row and row["duration_s"] else 0.0)
 
         arm_after = min(15.0, duration_s)
-        hard_cap = duration_s + 30.0
+        # DeepStream continues emitting detections for ~25–30s past file EOS
+        # (decoder/tracker tail-flush). Empirically a 148s clip finished at
+        # t=175.8s, ~27s past EOS (e2e aae924d3c18590a51). Give a 60s buffer
+        # so plateau detection has room to fire before this safety cap.
+        hard_cap = duration_s + 60.0
         elapsed = 0.0
         armed = False
         consecutive = 0
