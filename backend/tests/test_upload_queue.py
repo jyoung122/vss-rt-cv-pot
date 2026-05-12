@@ -317,7 +317,9 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
 
         await uq._process_job(job, pool, sem)
 
-        ds_mod.remove_stream.assert_awaited_once_with("vid1")
+        ds_mod.remove_stream.assert_awaited_once_with(
+            "vid1", "rtsp://mediamtx:8554/vid1"
+        )
         nv_mod.unregister_sensor.assert_awaited_once_with("test-uuid")
         pub_mod.stop.assert_called_once_with("vid1")
         # Semaphore should be released (can acquire again without blocking)
@@ -345,8 +347,9 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
 
         await uq._process_job(job, pool, sem)
 
-        # remove_stream always called in finally
-        ds_mod.remove_stream.assert_awaited_once_with("vid2")
+        # remove_stream NOT called — add_stream never ran, stream_url is None.
+        # (Avoids spurious 400s from nvds_rest_server for sources DS never saw.)
+        ds_mod.remove_stream.assert_not_awaited()
         # unregister_sensor NOT called (sensor_uuid was never set)
         nv_mod.unregister_sensor.assert_not_awaited()
         # rtsp_publisher.stop always called
@@ -378,8 +381,8 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         nv_mod.register_sensor.assert_not_awaited()
         # unregister_sensor not called (sensor_uuid is None)
         nv_mod.unregister_sensor.assert_not_awaited()
-        # remove_stream still called
-        ds_mod.remove_stream.assert_awaited_once_with("vid3")
+        # remove_stream NOT called — stream_url never set
+        ds_mod.remove_stream.assert_not_awaited()
         # rtsp_publisher.stop still called (no-op when never started)
         pub_mod.stop.assert_called_once_with("vid3")
 

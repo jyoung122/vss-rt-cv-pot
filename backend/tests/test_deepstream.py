@@ -106,19 +106,19 @@ class TestRemoveStream(unittest.TestCase):
         resp = _make_response(200, {})
         mock_ctx = _MockAsyncClient(post=resp)
         with patch("backend.app.deepstream.httpx.AsyncClient", return_value=mock_ctx):
-            _run(ds.remove_stream("vid1"))  # should not raise
+            _run(ds.remove_stream("vid1", "rtsp://mediamtx:8554/vid1"))  # should not raise
 
     def test_success_204_does_not_raise(self):
         resp = _make_response(204, {})
         mock_ctx = _MockAsyncClient(post=resp)
         with patch("backend.app.deepstream.httpx.AsyncClient", return_value=mock_ctx):
-            _run(ds.remove_stream("vid1"))
+            _run(ds.remove_stream("vid1", "rtsp://mediamtx:8554/vid1"))
 
     def test_posts_correct_payload(self):
         resp = _make_response(200, {})
         mock_ctx = _MockAsyncClient(post=resp)
         with patch("backend.app.deepstream.httpx.AsyncClient", return_value=mock_ctx):
-            _run(ds.remove_stream("vid1"))
+            _run(ds.remove_stream("vid1", "rtsp://mediamtx:8554/vid1"))
         call_kwargs = mock_ctx._client.post.call_args
         url = call_kwargs.args[0]
         payload = call_kwargs.kwargs["json"]
@@ -132,14 +132,14 @@ class TestRemoveStream(unittest.TestCase):
         mock_ctx = _MockAsyncClient(post=resp)
         with patch("backend.app.deepstream.httpx.AsyncClient", return_value=mock_ctx):
             with self.assertLogs("backend.app.deepstream", level="WARNING"):
-                _run(ds.remove_stream("vid-missing"))  # must not raise
+                _run(ds.remove_stream("vid-missing", "rtsp://mediamtx:8554/vid-missing"))  # must not raise
 
     def test_network_error_logs_warning_does_not_raise(self):
         mock_ctx = _MockAsyncClient()
         mock_ctx._client.post = AsyncMock(side_effect=Exception("timeout"))
         with patch("backend.app.deepstream.httpx.AsyncClient", return_value=mock_ctx):
             with self.assertLogs("backend.app.deepstream", level="WARNING"):
-                _run(ds.remove_stream("vid1"))  # must not raise
+                _run(ds.remove_stream("vid1", "rtsp://mediamtx:8554/vid1"))  # must not raise
 
 
 # ---------------------------------------------------------------------------

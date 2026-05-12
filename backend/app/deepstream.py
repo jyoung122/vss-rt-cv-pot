@@ -51,8 +51,12 @@ async def add_stream(video_id: str, rtsp_url: str) -> None:
         )
 
 
-async def remove_stream(video_id: str) -> None:
+async def remove_stream(video_id: str, rtsp_url: str) -> None:
     """POST /api/v1/stream/remove — remove a source by camera_id.
+
+    nvds_rest_server requires `camera_url` in addition to `camera_id`; without
+    it the server returns 400 STREAM_REMOVE_FAIL "Source url empty" (verified
+    on live vss-rt-cv 2026-05-12).
 
     Logs a warning on non-2xx but never raises, so teardown always completes.
     """
@@ -60,6 +64,7 @@ async def remove_stream(video_id: str) -> None:
         "key": "stream",
         "value": {
             "camera_id": video_id,
+            "camera_url": rtsp_url,
             "change": "remove",
         },
         "headers": {"source": "aims-backend"},

@@ -185,6 +185,7 @@ async def _process_job(job: dict, pool, sem: asyncio.Semaphore) -> None:
 
     sensor_uuid: str | None = None
     publisher_url: str | None = None
+    stream_url: str | None = None
 
     try:
         # 1. Set current_video_id in Redis (kept for event_indexer until F1 lands)
@@ -296,7 +297,8 @@ async def _process_job(job: dict, pool, sem: asyncio.Semaphore) -> None:
     finally:
         # F4 teardown — order matters; each step is guarded so one failure
         # doesn't skip the rest.
-        await deepstream.remove_stream(video_id)          # never raises
+        if stream_url is not None:
+            await deepstream.remove_stream(video_id, stream_url)  # never raises
 
         if sensor_uuid is not None:
             await nvstreamer.unregister_sensor(sensor_uuid)  # never raises
