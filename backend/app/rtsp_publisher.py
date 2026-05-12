@@ -46,7 +46,11 @@ def start(video_id: str, file_path: Path) -> str:
         cmd = [
             "ffmpeg",
             "-re",
-            "-stream_loop", "-1",
+            # No `-stream_loop -1` — let ffmpeg EOS at file end. DS sees EOS,
+            # event count stops climbing, plateau watcher fires within ~3s,
+            # dss_status='completed'. Looping kept events flowing forever
+            # and tripped the hard_cap (=failed status) for every single-pass
+            # job (e2e of 79_Cactus-...1778623197).
             "-i", str(file_path),
             "-c", "copy",
             "-f", "rtsp",
