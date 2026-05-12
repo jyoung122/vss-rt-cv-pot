@@ -269,7 +269,13 @@ async def _process_job(job: dict, pool, sem: asyncio.Semaphore) -> None:
             else:
                 last_count = count
 
-        final_status = "completed" if plateau_reached else "failed"
+        # Hard-cap with events still flowing = DS tail-flush ran past our budget,
+        # but ingest produced real data — treat as completed. "failed" should
+        # only fire when DS produced literally zero events (true pipeline break).
+        if plateau_reached or (last_count or 0) > 0:
+            final_status = "completed"
+        else:
+            final_status = "failed"
         await pool.execute(
             "UPDATE uploads SET dss_status=$1 WHERE video_id=$2", final_status, video_id
         )
