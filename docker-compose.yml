@@ -183,28 +183,47 @@ services:
       - vss-net
     restart: unless-stopped
 
+  # vLLM serving Cosmos-Reason2-8B from HF weights, FP8-quantized at load.
+  # Bypasses the NIM container's GPU-profile lockdown (L4 isn't in any Cosmos
+  # NIM manifest, so the NIM startup fails with NIMProfileIDNotFound). vLLM
+  # auto-quantizes BF16 -> FP8 on Ada+; backend already talks
+  # http://cosmos:8000/v1 (OpenAI-compatible), so no app-side change.
   cosmos:
     profiles: [gpu]
-    image: nvcr.io/nim/nvidia/cosmos-reason2-8b:1.7.0
+    image: vllm/vllm-openai:v0.7.2
     container_name: aims-cosmos
-    # No host port — supabase-kong owns :8000. vss-backend reaches cosmos
-    # over vss-net at http://cosmos:8000 internally; no external exposure needed.
-    # Override DNS: the host uses systemd-resolved on 127.0.0.53 which Docker
-    # copies into resolv.conf — useless inside the container's netns, so the
-    # NIM's NGC profile-fetch fails with "Temporary failure in name resolution"
-    # at startup. AWS VPC resolver (.2) is reliable on EC2; Google fallback.
+    # DNS pin: host's /etc/resolv.conf points at the systemd-resolved stub
+    # on 127.0.0.53, unreachable inside the container netns. HF fetches fail
+    # without an override. AWS VPC resolver (.253) is reliable on EC2.
     dns:
       - 169.254.169.253
       - 8.8.8.8
+    ipc: host
     environment:
-      NGC_API_KEY: ${NGC_CLI_API_KEY}
-      NIM_CACHE_PATH: /opt/nim/.cache
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN}
+      HF_TOKEN: ${HF_TOKEN}
     volumes:
-      - aims-cosmos-cache:/opt/nim/.cache
+      - aims-cosmos-cache:/root/.cache/huggingface
       - ${DATA_DIR}/videos:/data/videos:ro
       - ${DATA_DIR}/incidents:/data/incidents
     networks:
       - vss-net
+    command:
+      - --model
+      - nvidia/Cosmos-Reason2-8B
+      - --quantization
+      - fp8
+      - --gpu-memory-utilization
+      - "0.55"
+      - --max-model-len
+      - "8192"
+      - --max-num-seqs
+      - "1"
+      - --trust-remote-code
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
     deploy:
       resources:
         reservations:
@@ -216,7 +235,7 @@ services:
                 - gpu
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/v1/health/ready"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 5
