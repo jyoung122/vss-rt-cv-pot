@@ -190,7 +190,10 @@ services:
   # http://cosmos:8000/v1 (OpenAI-compatible), so no app-side change.
   cosmos:
     profiles: [gpu]
-    image: vllm/vllm-openai:v0.7.2
+    # Need Qwen3-VL support: Cosmos-Reason2-8B uses qwen3_vl architecture
+    # (model_type in config.json). v0.7.x errors with KeyError 'qwen3_vl'.
+    # latest tag has Qwen3-VL support added in ~v0.10.
+    image: vllm/vllm-openai:latest
     container_name: aims-cosmos
     # DNS pin: host's /etc/resolv.conf points at the systemd-resolved stub
     # on 127.0.0.53, unreachable inside the container netns. HF fetches fail
