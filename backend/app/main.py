@@ -103,6 +103,23 @@ async def lifespan(app: FastAPI):
     await init_pool()
     log.info("postgres.pool.ready")
 
+    # Phase E: backfill legacy rows (pre-auth uploads with user_id IS NULL).
+    # Set LEGACY_OWNER_USER_ID to the Supabase user that should own them.
+    # Unset/empty = no-op (legacy rows stay orphaned and invisible to everyone).
+    legacy_owner = os.getenv("LEGACY_OWNER_USER_ID", "").strip()
+    if legacy_owner:
+        from app.db import get_pool as _get_pool_for_backfill
+        pool = _get_pool_for_backfill()
+        updated = await pool.fetchval(
+            "WITH u AS (UPDATE uploads SET user_id=$1 WHERE user_id IS NULL RETURNING 1) "
+            "SELECT count(*) FROM u",
+            legacy_owner,
+        )
+        log.info(
+            "uploads.legacy.backfill",
+            extra={"legacy_owner_user_id": legacy_owner, "rows_updated": updated},
+        )
+
     # Redis
     redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
     try:
