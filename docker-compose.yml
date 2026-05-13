@@ -187,8 +187,8 @@ services:
     profiles: [gpu]
     image: nvcr.io/nim/nvidia/cosmos-reason2-8b:1.7.0
     container_name: aims-cosmos
-    ports:
-      - "8000:8000"
+    # No host port — supabase-kong owns :8000. vss-backend reaches cosmos
+    # over vss-net at http://cosmos:8000 internally; no external exposure needed.
     environment:
       NGC_API_KEY: ${NGC_CLI_API_KEY}
       NIM_CACHE_PATH: /opt/nim/.cache
