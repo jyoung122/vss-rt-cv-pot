@@ -1,27 +1,14 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { MapPin } from 'lucide-react'
+import { Loader2, MapPin, Power } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
-import { type Scene, CameraScene } from '@/components/camera-scenes'
-
-// ─── Camera mock data ─────────────────────────────────────────────────────────
-
-type AlertLevel = 'critical' | 'high' | 'medium' | null
-
-interface Camera { id: string; scene: Scene; label: string; alert: AlertLevel }
-
-const CAMERAS: Camera[] = [
-  { id: 'CAM-117', scene: 'wrongway',     label: 'Loop 101 @ Bell Rd · SB', alert: 'critical' },
-  { id: 'CAM-043', scene: 'highway',      label: 'Loop 101 @ Union Hills',  alert: null },
-  { id: 'CAM-208', scene: 'stalled',      label: '83rd Ave @ Thunderbird',  alert: 'high' },
-  { id: 'CAM-012', scene: 'intersection', label: 'Grand Ave @ 75th',        alert: 'high' },
-  { id: 'CAM-156', scene: 'roundabout',   label: '99th Ave @ Happy Valley', alert: null },
-  { id: 'CAM-091', scene: 'flood',        label: 'New River Rd',            alert: 'medium' },
-]
+import { Switch } from '@/components/ui/switch'
+import { HlsPlayer } from '@/components/hls-player'
+import { apiFetch } from '@/lib/api-fetch'
 
 // ─── Incident feed types + mock data ─────────────────────────────────────────
 
@@ -111,77 +98,173 @@ function LiveDot({ color = 'var(--danger-500)', label = 'LIVE' }: { color?: stri
   )
 }
 
-// ─── Camera tile ──────────────────────────────────────────────────────────────
+// ─── Monitor (real RTSP) types + tile ─────────────────────────────────────────
 
-function CameraTile({ cam, t, wide }: { cam: Camera; t: number; wide: boolean }) {
-  const alertColor =
-    cam.alert === 'critical' ? 'var(--danger-500)' :
-    cam.alert === 'high'     ? 'var(--warn-500)' :
-    cam.alert === 'medium'   ? 'var(--warn-500)' : null
+interface Monitor {
+  id: string
+  name: string
+  source_url: string
+  hls_path: string
+  enabled: boolean
+}
+interface MonitorStats { events: number; tracks: number }
 
-  const now = new Date()
-  const tickTime = new Date(now.getTime() + t * 1000)
-  const timeStr = tickTime.toTimeString().slice(0, 8)
+function MonitorTile({
+  m, stats, busy, liveMode, onToggle, wide,
+}: {
+  m: Monitor
+  stats: MonitorStats | undefined
+  busy: boolean
+  liveMode: boolean
+  onToggle: () => void
+  wide: boolean
+}) {
+  const [hlsUrl, setHlsUrl] = useState<string>('')
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    setHlsUrl(`${window.location.protocol}//${window.location.hostname}:8888/${m.hls_path}/index.m3u8`)
+  }, [m.hls_path])
 
+  const alertColor = m.enabled ? 'var(--ok-500)' : 'var(--fg-4)'
   return (
     <div style={{
       position: 'relative',
       aspectRatio: wide ? '32/9' : '16/9',
       background: '#000',
-      border: alertColor ? `1px solid ${alertColor}` : '1px solid var(--border)',
+      border: `1px solid ${m.enabled ? 'var(--ok-500)' : 'var(--border)'}`,
       borderRadius: 'var(--radius-sm)',
       overflow: 'hidden',
     }}>
-      <CameraScene scene={cam.scene} t={t} />
-      {/* vignette */}
+      {hlsUrl && <HlsPlayer src={hlsUrl} className="absolute inset-0 size-full object-cover" />}
       <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none',
         background: 'radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%)' }} />
-      {/* top chips */}
+      {!m.enabled && (
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>
+          Detection off — preview only
+        </div>
+      )}
       <div style={{ position: 'absolute', top: 8, left: 8, right: 8,
         display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <LiveDot color={alertColor ?? '#4a9'} label={alertColor ? 'ALERT' : 'LIVE'} />
-        <div suppressHydrationWarning style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#fff',
-          background: 'rgba(0,0,0,0.5)', padding: '2px 6px', borderRadius: 2, letterSpacing: '0.05em' }}>
-          {timeStr}
+        <LiveDot color={alertColor} label={m.enabled ? 'LIVE' : 'OFF'} />
+        <div style={{ pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 6,
+          background: 'rgba(0,0,0,0.55)', padding: '4px 8px', borderRadius: 2 }}>
+          {busy
+            ? <Loader2 className="size-3 animate-spin text-white/80" />
+            : <Switch checked={m.enabled} onCheckedChange={onToggle} disabled={!liveMode && !m.enabled} />}
         </div>
       </div>
-      {/* alert banner */}
-      {cam.alert === 'critical' && (
-        <div style={{ position: 'absolute', left: 8, top: 32,
-          background: 'rgba(217,75,61,0.92)', color: '#fff',
-          padding: '5px 10px', fontSize: 11, fontWeight: 600, letterSpacing: '0.04em' }}>
-          WRONG-WAY DETECTED · 98% CONF
-        </div>
-      )}
-      {cam.alert === 'high' && cam.id === 'CAM-208' && (
-        <div style={{ position: 'absolute', left: 8, top: 32,
-          background: 'rgba(224,146,34,0.92)', color: '#14202a',
-          padding: '5px 10px', fontSize: 11, fontWeight: 600, letterSpacing: '0.04em' }}>
-          STALLED VEHICLE · 94% CONF
-        </div>
-      )}
-      {/* bottom label */}
       <div style={{ position: 'absolute', left: 10, bottom: 10,
         fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.06em',
         background: 'rgba(0,0,0,0.55)', padding: '4px 8px', borderRadius: 2,
-        backdropFilter: 'blur(4px)', color: '#fff' }}>
-        {cam.id} · {cam.label}
+        backdropFilter: 'blur(4px)', color: '#fff', display: 'flex', gap: 12 }}>
+        <span>{m.id} · {m.name}</span>
+        {m.enabled && stats && (
+          <span style={{ color: 'var(--accent-400)' }}>
+            <Power className="inline size-3 mr-1" />
+            {stats.events.toLocaleString()} ev · {stats.tracks} tracks
+          </span>
+        )}
       </div>
     </div>
   )
 }
 
-function CameraWall({ t, viewMode }: { t: number; viewMode: 'grid' | 'list' }) {
+function MonitorWall({ viewMode }: { viewMode: 'grid' | 'list' }) {
+  const [monitors, setMonitors] = useState<Monitor[] | null>(null)
+  const [stats, setStats] = useState<Record<string, MonitorStats>>({})
+  const [busy, setBusy] = useState<Record<string, boolean>>({})
+  const [liveMode, setLiveMode] = useState<boolean>(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadAll = useCallback(async () => {
+    try {
+      const [modeRes, monRes] = await Promise.all([
+        apiFetch('/api/live/mode'),
+        apiFetch('/api/monitors'),
+      ])
+      if (modeRes.ok) setLiveMode(((await modeRes.json()) as { enabled: boolean }).enabled)
+      if (monRes.ok) setMonitors((await monRes.json()) as Monitor[])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load monitors')
+    }
+  }, [])
+  useEffect(() => { loadAll() }, [loadAll])
+
+  useEffect(() => {
+    if (!monitors || monitors.length === 0) return
+    let alive = true
+    const tick = async () => {
+      const next: Record<string, MonitorStats> = {}
+      for (const m of monitors) {
+        try {
+          const r = await apiFetch(`/api/monitors/${m.id}/stats`)
+          if (r.ok) next[m.id] = (await r.json()) as MonitorStats
+        } catch { /* ignore */ }
+      }
+      if (alive) setStats(next)
+    }
+    tick()
+    const id = setInterval(tick, 2000)
+    return () => { alive = false; clearInterval(id) }
+  }, [monitors])
+
+  const toggle = async (m: Monitor) => {
+    if (!liveMode && !m.enabled) {
+      setError('Live demo mode is off — enable it in /settings first')
+      return
+    }
+    setBusy(b => ({ ...b, [m.id]: true }))
+    setError(null)
+    try {
+      const action = m.enabled ? 'disable' : 'enable'
+      const res = await apiFetch(`/api/monitors/${m.id}/${action}`, { method: 'POST' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      await loadAll()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Toggle failed')
+    } finally {
+      setBusy(b => ({ ...b, [m.id]: false }))
+    }
+  }
+
   return (
     <div style={{ padding: 20, background: 'var(--bg)', flex: 1, minHeight: 0, overflow: 'auto' }}>
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: viewMode === 'grid' ? 'repeat(3, 1fr)' : '1fr',
-        gap: 10,
-      }}>
-        {CAMERAS.map((cam, idx) => (
-          <CameraTile key={cam.id} cam={cam} t={t + idx * 0.2} wide={viewMode === 'list'} />
-        ))}
+      {!liveMode && (
+        <div style={{ marginBottom: 12, padding: '8px 12px',
+          border: '1px solid color-mix(in srgb, var(--warn-500) 35%, transparent)',
+          background: 'color-mix(in srgb, var(--warn-500) 10%, transparent)',
+          color: 'var(--warn-500)', borderRadius: 'var(--radius-sm)',
+          fontSize: 12 }}>
+          Live demo mode is disabled — toggles inactive. Turn it on in <code>/settings</code>.
+        </div>
+      )}
+      {error && (
+        <div style={{ marginBottom: 12, padding: '8px 12px',
+          border: '1px solid color-mix(in srgb, var(--err-500) 35%, transparent)',
+          background: 'color-mix(in srgb, var(--err-500) 10%, transparent)',
+          color: 'var(--err-500)', borderRadius: 'var(--radius-sm)', fontSize: 12 }}>
+          {error}
+        </div>
+      )}
+      <div style={{ display: 'grid',
+        gridTemplateColumns: viewMode === 'grid' ? 'repeat(3, 1fr)' : '1fr', gap: 10 }}>
+        {monitors === null
+          ? Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className={viewMode === 'grid' ? 'aspect-video w-full' : 'aspect-[32/9] w-full'} />
+            ))
+          : monitors.map(m => (
+              <MonitorTile
+                key={m.id}
+                m={m}
+                stats={stats[m.id]}
+                busy={!!busy[m.id]}
+                liveMode={liveMode}
+                onToggle={() => toggle(m)}
+                wide={viewMode === 'list'}
+              />
+            ))}
       </div>
     </div>
   )
@@ -347,16 +430,9 @@ export default function LiveOpsPage() {
 function LiveOpsContent() {
   const searchParams = useSearchParams()
   const viewMode = (searchParams.get('view') as 'grid' | 'list') ?? 'grid'
-  const [t, setT] = useState(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [incidents, setIncidents] = useState<FeedIncident[]>([])
   const [loading, setLoading] = useState(true)
-
-  // Animation ticker — 10 fps is enough for smooth car movement
-  useEffect(() => {
-    const id = setInterval(() => setT((prev) => prev + 0.1), 100)
-    return () => clearInterval(id)
-  }, [])
 
   // Load live incident feed, auto-refresh every 30s
   useEffect(() => {
@@ -383,9 +459,9 @@ function LiveOpsContent() {
   return (
     <div className="flex flex-col h-full min-h-0 overflow-hidden">
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', flex: 1, minHeight: 0 }}>
-        {/* Left: camera wall + map strip */}
+        {/* Left: monitor wall + map strip */}
         <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, borderRight: '1px solid var(--border)' }}>
-          <CameraWall t={t} viewMode={viewMode} />
+          <MonitorWall viewMode={viewMode} />
           <MapStrip />
         </div>
         {/* Right: event feed */}

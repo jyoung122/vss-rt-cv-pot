@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useDevSettings } from '@/lib/use-dev-settings'
+import { apiFetch } from '@/lib/api-fetch'
 
 type Category = 'development'
 
@@ -137,6 +138,55 @@ function VlmProviderControl() {
   )
 }
 
+function LiveModeControl() {
+  const [enabled, setEnabled] = useState<boolean | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    apiFetch('/api/live/mode')
+      .then(r => (r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`)))
+      .then(d => setEnabled(d.enabled))
+      .catch(e => setError(String(e)))
+  }, [])
+
+  async function toggle(next: boolean) {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await apiFetch('/api/live/mode', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled: next }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const d = (await res.json()) as { enabled: boolean }
+      setEnabled(d.enabled)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Toggle failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <SettingRow
+      label="Live demo mode"
+      description="Master kill switch for the mock-camera RTSP pipeline. Turning OFF tears down any attached cameras (frees GPU). Turning ON does not auto-re-attach — choose cameras individually in /live."
+    >
+      {enabled === null ? (
+        <span className="text-xs text-muted-foreground">{error ?? 'loading…'}</span>
+      ) : (
+        <Switch
+          checked={enabled}
+          disabled={busy}
+          onCheckedChange={toggle}
+        />
+      )}
+    </SettingRow>
+  )
+}
+
 function DevelopmentSettings() {
   const { settings, update } = useDevSettings()
 
@@ -148,6 +198,18 @@ function DevelopmentSettings() {
           Tooling and debug options. These settings only apply in development mode.
         </p>
       </div>
+
+      <Card>
+        <CardHeader className="pb-0">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            Live demo
+            <Badge variant="secondary" className="text-xs font-normal">operator</Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pb-0">
+          <LiveModeControl />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-0">
