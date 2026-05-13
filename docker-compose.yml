@@ -189,6 +189,13 @@ services:
     container_name: aims-cosmos
     # No host port — supabase-kong owns :8000. vss-backend reaches cosmos
     # over vss-net at http://cosmos:8000 internally; no external exposure needed.
+    # Override DNS: the host uses systemd-resolved on 127.0.0.53 which Docker
+    # copies into resolv.conf — useless inside the container's netns, so the
+    # NIM's NGC profile-fetch fails with "Temporary failure in name resolution"
+    # at startup. AWS VPC resolver (.2) is reliable on EC2; Google fallback.
+    dns:
+      - 169.254.169.253
+      - 8.8.8.8
     environment:
       NGC_API_KEY: ${NGC_CLI_API_KEY}
       NIM_CACHE_PATH: /opt/nim/.cache
