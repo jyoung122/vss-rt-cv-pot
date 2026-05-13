@@ -21,6 +21,8 @@ from app.events import router as events_router
 from app.uploads_list import router as uploads_list_router
 from app.incidents import router as incidents_router
 from app.dev_settings import router as dev_settings_router
+from app.monitors import router as monitors_router, seed_monitors, reattach_enabled
+from app.monitor_pruner import run_pruner
 from app.redis_client import clear_stream
 from app.db import init_pool, close_pool
 from app.event_indexer import run_indexer
@@ -37,6 +39,7 @@ log = logging.getLogger(__name__)
 redis_client = None
 _indexer_task: asyncio.Task | None = None
 _queue_worker_task: asyncio.Task | None = None
+_pruner_task: asyncio.Task | None = None
 
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
@@ -143,6 +146,14 @@ async def lifespan(app: FastAPI):
     _queue_worker_task = start_worker(_get_pool())
     log.info("upload_queue.worker.task.started")
 
+    # Live demo monitors: seed rows on first boot, re-attach any that were
+    # enabled before the restart so the operator's last toggle state survives.
+    pool = _get_pool()
+    await seed_monitors(pool)
+    await reattach_enabled(pool)
+    _pruner_task = asyncio.create_task(run_pruner())
+    log.info("monitor_pruner.task.started")
+
     yield
 
     # Shutdown
@@ -155,6 +166,13 @@ async def lifespan(app: FastAPI):
             pass
 
     await stop_worker()
+
+    if _pruner_task is not None:
+        _pruner_task.cancel()
+        try:
+            await _pruner_task
+        except asyncio.CancelledError:
+            pass
 
     if redis_client is not None:
         await redis_client.aclose()
@@ -180,6 +198,7 @@ app.include_router(events_router)
 app.include_router(uploads_list_router, dependencies=[Depends(require_user)])
 app.include_router(incidents_router, dependencies=[Depends(require_user)])
 app.include_router(dev_settings_router, dependencies=[Depends(require_user)])
+app.include_router(monitors_router)  # monitors_router routes already require_user individually
 
 
 @app.get("/healthz")

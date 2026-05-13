@@ -74,3 +74,32 @@ CREATE TABLE IF NOT EXISTS rule_config (
   thresholds JSONB NOT NULL DEFAULT '{}'::jsonb,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Live demo monitors: long-running RTSP sources (mock cameras for now,
+-- real cameras later). Each monitor has a stub row in `uploads` so the
+-- existing events FK + indexer + scrubber UIs work unchanged; events are
+-- pruned on a rolling window (see app/monitor_pruner.py).
+CREATE TABLE IF NOT EXISTS monitors (
+  id            TEXT PRIMARY KEY,       -- also the uploads.video_id and DS camera_id
+  name          TEXT NOT NULL,
+  source_url    TEXT NOT NULL,          -- rtsp://mediamtx:8554/<path>
+  hls_path      TEXT NOT NULL,          -- path segment under :8888 for HLS preview
+  sensor_uuid   TEXT,                   -- NVStreamer sensorId while enabled; NULL when off
+  enabled       BOOLEAN NOT NULL DEFAULT FALSE,
+  last_enabled_at  TIMESTAMPTZ,
+  last_disabled_at TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Shared across users for the demo (no user_id column). When a real
+-- multi-tenant deploy needs per-user monitors, add user_id + Phase-A
+-- scoping the same way uploads does it.
+
+-- App-level settings (single-row k/v). Used by the operator-facing kill
+-- switch in /settings so toggle state survives container restarts.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key   TEXT PRIMARY KEY,
+  value JSONB NOT NULL
+);
+INSERT INTO app_settings (key, value) VALUES ('live_mode_enabled', 'true'::jsonb)
+ON CONFLICT (key) DO NOTHING;

@@ -7,6 +7,15 @@
 api: yes
 apiAddress: :9997
 
+# HLS for the /live preview tiles. Internal-only; the Next.js server-side
+# proxy reaches it on vss-net. Frontend hits /api/live/<id>/index.m3u8.
+hls: yes
+hlsAddress: :8888
+hlsAlwaysRemux: yes
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+
 # mediamtx v1.18+ ships a restrictive default `any` user that only allows
 # publish/read — the HTTP API requires the `api` action explicitly. The
 # entire stack runs on the internal vss-net bridge with no host-port

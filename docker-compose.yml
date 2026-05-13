@@ -222,7 +222,52 @@ services:
     networks: [vss-net]
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
-    # No host port exposure — internal only; backend reaches it by service name
+    # 8554 (RTSP) + 9997 (API) stay internal — backend reaches them by service name.
+    # 8888 (HLS) is exposed so the /live preview can pull segments from the browser.
+    ports:
+      - "8888:8888"
+
+  # ── Mock cameras for the live-demo path ──────────────────────────────────
+  # ffmpeg loops a seed clip into mediamtx as a stable RTSP path. The backend
+  # /api/monitors endpoint registers/unregisters these with DeepStream so
+  # detection runs only when the operator flips the toggle in /live.
+  # Always-running publishers are cheap (-c copy, no transcode); the GPU cost
+  # is gated by enable/disable.
+  mock-camera-1:
+    image: jrottenberg/ffmpeg:6-alpine
+    container_name: vss-mock-camera-1
+    restart: unless-stopped
+    networks: [vss-net]
+    depends_on: [mediamtx]
+    volumes:
+      - ${DATA_DIR}/videos:/videos:ro
+    command: >
+      -re -stream_loop -1 -i /videos/115_and_HVP.mp4
+      -c copy -f rtsp rtsp://mediamtx:8554/cam-1
+
+  mock-camera-2:
+    image: jrottenberg/ffmpeg:6-alpine
+    container_name: vss-mock-camera-2
+    restart: unless-stopped
+    networks: [vss-net]
+    depends_on: [mediamtx]
+    volumes:
+      - ${DATA_DIR}/videos:/videos:ro
+    command: >
+      -re -stream_loop -1 -i /videos/75_Thunderbird-2cb8c409-1778627045.mp4
+      -c copy -f rtsp rtsp://mediamtx:8554/cam-2
+
+  mock-camera-3:
+    image: jrottenberg/ffmpeg:6-alpine
+    container_name: vss-mock-camera-3
+    restart: unless-stopped
+    networks: [vss-net]
+    depends_on: [mediamtx]
+    volumes:
+      - ${DATA_DIR}/videos:/videos:ro
+    command: >
+      -re -stream_loop -1 -i /videos/91_LPP-1778030969-2cb8c409-1778626853.mp4
+      -c copy -f rtsp rtsp://mediamtx:8554/cam-3
 
 networks:
   vss-net:
