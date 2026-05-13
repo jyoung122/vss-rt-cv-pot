@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { Suspense, useState } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,16 @@ import { Input } from "@/components/ui/input"
 import { createClient } from "@/lib/supabase/client"
 
 export default function LoginPage() {
+  // useSearchParams forces client-side bail-out at the closest Suspense boundary;
+  // Next 15 prerender fails without one.
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  )
+}
+
+function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const expired = searchParams.get("expired") === "1"
