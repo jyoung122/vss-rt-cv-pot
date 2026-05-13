@@ -75,7 +75,7 @@ Browser
                               │  Observability    │
                               │  (optional)       │
                               │  Loki · Promtail  │
-                              │  Grafana :3001    │
+                              │  Grafana :3002    │
                               └──────────────────┘
 ```
 
@@ -89,14 +89,19 @@ All containers share a single Docker bridge network: `vss-net`.
 
 ```
 User drags video onto the UI
-  → POST /api/uploads  (multipart)
-  → backend: ffprobe extracts duration/fps/resolution, inserts uploads row
-  → backend: writes data/videos/current_stream_url.txt (file:// URI)
-  → backend: restarts vss-rt-cv via Docker socket
-  → vss-rt-cv: reads the URI file on next start, processes the clip
-  → vss-rt-cv: emits detection frames to Redis mdx-raw stream
-  → event_indexer (asyncio task): XREADGROUP drain → inserts events rows
-  → WebSocket broadcaster: tails mdx-raw, pushes live frames to browser
+  → POST /api/uploads  (multipart, JWT-gated)
+  → backend: ffprobe extracts duration/fps/resolution, inserts uploads row (user_id=JWT sub)
+  → upload_queue: semaphore admits up to MAX_CONCURRENT_STREAMS jobs (default 2)
+  → rtsp_publisher: spawns ffmpeg -re → mediamtx (rtsp://mediamtx:8554/<video_id>)
+  → waits for mediamtx HTTP API to report sourceReady (avoids DS 404 race)
+  → nvstreamer: POST /api/v1/sensor/add (returns sensorUuid for downstream use)
+  → deepstream: POST /api/v1/stream/add to vss-rt-cv:9000 (nvmultiurisrcbin
+                attaches the new source dynamically — no container restart)
+  → vss-rt-cv: emits detection frames to Redis mdx-raw stream, tagged with sensorId
+  → event_indexer (asyncio task): XREADGROUP drain → routes by meta["sensorId"] →
+                                  inserts events rows
+  → plateau watcher: 3 consecutive identical event counts (or hard_cap=duration_s+60s)
+                     → DS stream remove → NVStreamer sensor delete → ffmpeg stop
 ```
 
 ### 2. Analysis → VLM verdict
@@ -146,10 +151,12 @@ Browser opens /incidents
 | Backend | `vss-backend` | FastAPI hub: upload handler, event indexer, incident worker, VLM orchestration | no |
 | DeepStream | `vss-rt-cv` | Object detection (RT-DETR / TrafficCamNet) + IOU tracker → `mdx-raw` | yes (always) |
 | Cosmos | `aims-cosmos` | Cosmos-Reason2-2B NIM; VLM second-pass verdict on incidents | yes (on-demand) |
-| Postgres | `vss-postgres` | Persistent store: `uploads`, `events`, `incidents`, `rule_config` | no |
 | Redis | `vss-redis` | `mdx-raw` stream bus between DeepStream and backend | no |
-| NVStreamer | `nvstreamer` | Video ingest sidecar — bypassed in v1 (upload-only mode) | no |
-| SDR | `sdr` | Stream Discovery & Registration — cosmetic in v1 | no |
+| mediamtx | `vss-mediamtx` | RTSP relay; ffmpeg publishes each upload as a path | no |
+| NVStreamer | `vss-nvstreamer` | Per-sensor RTSP registration via /api/v1/sensor | no |
+| SDR | `vss-sdr` | Stream Discovery & Registration sidecar — present, cosmetic in current path | no |
+| Postgres (Supabase overlay) | `supabase-db` | Persistent store + Supabase auth schema | no |
+| GoTrue / Kong / Storage / Studio | `supabase-*` | Supabase auth + admin UI (overlay) | no |
 | Loki/Promtail/Grafana | *(optional overlay)* | Log aggregation and UI for support/dev | no |
 
 ---
@@ -160,7 +167,8 @@ Four tables (defined in `backend/app/schema.sql`):
 
 ```
 uploads
-  id TEXT PK, filename, duration_s, fps, resolution, status, created_at
+  video_id TEXT PK, original_filename, prompt, duration_s, width, height, fps,
+  size_bytes, uploaded_at, user_id (Phase A), dss_status
 
 events
   id SERIAL PK, upload_id FK, track_id, object_class,
@@ -197,13 +205,15 @@ Peak combined ~9 GB — well within the A6000's 48 GB. The two consumers do not 
 
 | Decision | Rationale |
 |---|---|
-| Upload-only (no live RTSP) | Simplifies demo reliability; NVStreamer/SDR wired but bypassed |
-| No auth | Firewall-restricted demo VM; auth deferred to v2 |
+| Upload → RTSP shim (mediamtx + ffmpeg `-re`) | Re-uses the NVStreamer RTSP path NVIDIA actually tests; sidesteps the 3.1.0 file-streamer libav strip |
+| Multi-source via `nvmultiurisrcbin` + REST | DeepStream stays running; sources added/removed via :9000. Replaces the per-upload container restart |
+| Concurrent uploads via asyncio semaphore | `MAX_CONCURRENT_STREAMS=2` default. Each job owns its own publisher, sensor, plateau watcher, and teardown |
+| Per-event source tagging via `msgconv` `sensorId` | Indexer routes each frame to its `video_id` from payload metadata; no more last-writer-wins on a Redis singleton |
+| Supabase JWT (HS256, `aud=authenticated`) | Per-user data isolation at the app layer; `uploads.user_id` filters every SELECT |
 | Custom incident worker (not NVIDIA behavior-analytics) | Upstream service lacks collision / ped-impact rules; custom worker writes `mdx-incidents`-compatible schema for a future swap |
 | Cosmos self-hosted via NIM | Avoids cloud egress cost; A6000 fits both DeepStream + 2B params comfortably |
 | IOU tracker (not NvDCF) | Simpler, no calibration needed; track-ID swaps under occlusion are a known v1.5 item |
 | asyncio tasks inside FastAPI lifespan | event_indexer and incident_worker are lightweight enough to co-locate; avoids a separate worker process for v1 |
-| Docker socket mount on backend | Lets the upload handler restart `vss-rt-cv` in-process without an external orchestrator |
 | Raw SQL / asyncpg (no ORM) | Schema is small and stable; ORM overhead not justified |
 
 ---

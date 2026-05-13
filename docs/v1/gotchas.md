@@ -88,11 +88,31 @@ App run failed
 
 **Fix.** Currently cosmetic. If we ever re-enable SDR-driven stream switching, this needs a retry-with-backoff. Track under Phase 3 if it persists.
 
-### `current_stream_url.txt` not present → DeepStream falls back to a placeholder RTSP
+### DeepStream boots with an empty source list (current behaviour)
 
-**Cause.** `ds-start.sh` looks for `/data/videos/current_stream_url.txt`; if absent, the perception config gets `rtsp://nvstreamer:30554/placeholder`. The pipeline fails to construct a source — engine still compiles, but no detections flow.
+`ds-start.sh` no longer reads a stream URL file. Post-F2 the perception config uses
+`[source-list] use-nvmultiurisrcbin=1` + `[source-attr-all]` and the pipeline boots
+with zero sources. Sources are added at runtime via `POST /api/v1/stream/add` on
+:9000 from the backend. If you start DS and see no detections, that's expected
+until an upload arrives.
 
-**Fix.** Trigger a real upload via `POST /api/uploads`. The backend writes `current_stream_url.txt` and restarts the `vss-rt-cv` container via the Docker socket.
+### `nvmultiurisrcbin` gets stuck after the first file source EOSes
+
+**Cause.** GstPipeline defaults to propagating EOS terminally — once the first
+file source finishes, the pipeline enters a permanent EOS state and every
+subsequent `stream/add` returns 200 but no source actually attaches.
+
+**Fix.** `[streammux] drop-pipeline-eos=1 live-source=1` in
+`deepstream/config/perception-config.txt`. Required for nvmultiurisrcbin
+REST-server mode.
+
+### mediamtx HTTP API returns 401 when the backend polls readiness
+
+**Cause.** mediamtx v1.18+ ships a default `any` user that only allows
+`publish` / `read`; the HTTP API requires the `api` action explicitly.
+
+**Fix.** Add `action: api` (and `metrics`, `pprof`) to `authInternalUsers` in
+`mediamtx.yml`. Backend fails fast with an actionable error on 401.
 
 ---
 

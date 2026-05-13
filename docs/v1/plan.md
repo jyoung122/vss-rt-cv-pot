@@ -2,7 +2,7 @@
 
 **Goal:** ship the working CV pipeline (formerly `vss-rt-cv-pot`, now `aims/`) as **SSI AIMS** — a single-VM demo with a polished SSI-branded UI on top of the working DeepStream perception pipeline.
 
-**Posture:** POT is the app. No auth, no IVM service integration. Upload-only. The IVM repo (`intelligent-video-monitoring/`) is harvested for brand + UI assets, then frozen.
+**Posture:** POT is the app. Multi-user via Supabase JWT (shipped 2026-05-05). Upload-only on disk → wrapped as RTSP via mediamtx for DeepStream (shipped 2026-05-12). No IVM service integration. The IVM repo (`intelligent-video-monitoring/`) is harvested for brand + UI assets, then frozen.
 
 **Prior plan:** the original auth + IVM-integration plan was abandoned per the 2026-04-30 scope reset (auth dropped, IVM service integration dropped).
 
@@ -13,9 +13,9 @@
 | # | Decision |
 |---|---|
 | D1 | POT is the project. Renamed to `aims/` post-Phase 1 (commit `ce2e906`). |
-| D2 | No auth. Public on the demo VM (firewall-restricted by hosting). |
+| D2 | ~~No auth.~~ **Superseded 2026-05-05:** Supabase JWT (HS256, `aud=authenticated`). Per-user data isolation via `uploads.user_id`. See [`phases/supabase-auth.md`](phases/supabase-auth.md), [`phases/multi-user-uploads.md`](phases/multi-user-uploads.md). |
 | D3 | No IVM services in v1 (no behavior-analytics, search-store, video-store, alert-verification, agent layer). |
-| D4 | Upload-only. RTSP deferred. |
+| D4 | ~~Upload-only. RTSP deferred.~~ **Superseded 2026-05-12:** uploads land on disk, then a per-upload ffmpeg publisher pushes them as RTSP to mediamtx; DeepStream pulls via the standard RTSP path. The NVStreamer file-streamer adapter (broken in 3.1.0) is bypassed entirely. See [`phases/multi-user-uploads.md#phase-f`](phases/multi-user-uploads.md#phase-f--parallel-gpu-processing). |
 | D5 | UI rebrand under SSI AIMS identity. Lift IVM `apps/ui` design system + page chrome where it improves on POT's. |
 | D6 | Always-on GPU VM (Brev / AWS). |
 | D7 | TrafficCamNet 4 classes (car, bicycle, person, road_sign) sufficient. |
@@ -194,7 +194,7 @@ First-run guided walkthrough so a stakeholder can self-serve the demo: Dashboard
 
 ### High-priority architectural debt
 
-- 🚨 **Replace docker-socket container-restart with multi-source DeepStream pipeline.** Today `POST /api/upload` writes a single `current_video_id` Redis key, rewrites `current_stream_url.txt`, and POSTs to `/var/run/docker.sock` to restart `vss-rt-cv`. This pattern is single-tenant by design — concurrent uploads race on the global key/file and the last writer wins (the first uploads land on disk but never get perceived). It also costs ~20–30 s per upload (TRT engine reload + GStreamer pipeline init) and exposes the host's docker socket inside the backend container (root-equivalent). **Proper fix:** tag `mdx-raw` events with `video_id` at the source (`nvmsgconv` schema change), drop the `current_video_id` global, run a long-lived DeepStream pipeline with sources added/removed at runtime via `nvstreammux` + a small control endpoint inside the perception container. Unblocks: real concurrency, sub-second source switching, removal of docker-socket privilege. Estimated cost: 2–3 days. Workaround in place: serial job queue (see Phase 11 below) — gives correct multi-user behavior without the architectural change but keeps the per-upload restart cost.
+- ✅ **Resolved 2026-05-12 — Multi-source DeepStream + per-event source tagging shipped.** Replaced the docker-socket container-restart pattern with: (1) `nvmultiurisrcbin` + REST API on vss-rt-cv:9000 — DeepStream stays running, sources added/removed dynamically (`POST /api/v1/stream/{add,remove}`); (2) `msgconv` `sensorId` field carrying `video_id` on every frame; indexer routes by it (no more Redis singleton); (3) asyncio.Semaphore (`MAX_CONCURRENT_STREAMS=2`) bounding concurrent jobs. Docker socket mount removed from backend.
 
 ### Deferred (not blocking v1 demo)
 - ⏸ `/settings` page real content

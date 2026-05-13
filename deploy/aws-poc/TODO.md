@@ -6,20 +6,11 @@ Last touched 2026-05-11. Infra is up; remaining work is app-config, ops setup, a
 
 ## P0 — Demo blockers (must fix before showing the customer)
 
-- [ ] **Frontend: bake `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` into the build.**
-  `https://aims.synch-solutions.com` currently 500s on middleware. Next.js needs `NEXT_PUBLIC_*` at **build time**, not runtime. Either (a) pass as build args in [docker-compose.yml](../../docker-compose.yml) frontend service, or (b) rebuild with the env present.
-  Verify: `curl -sI https://aims.synch-solutions.com` returns `200` or `307`, not `500`.
+- [x] ~~**Frontend: bake `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` into the build.**~~ Resolved 2026-05-12 — passed as build args in [docker-compose.yml](../../docker-compose.yml). `NEXT_PUBLIC_SUPABASE_URL=http://kong:8000` (server-side Docker DNS); browser uses same-origin via Next.js rewrites.
 
-- [ ] **`vss-rt-cv`: get TrafficCamNet model in place.**
-  Container is restart-looping with `[ds-start] ERROR: ngc CLI not found`. Options:
-  - Pre-stage model to `/data/models/trafficcamnet_transformer/` on the Brev box (`brev copy` or download via NGC CLI on your laptop then push)
-  - Install NGC CLI inside the container via a Dockerfile patch
-  - Skip TrafficCamNet if RT-DETR alone is enough — patch [`deepstream/init/ds-start.sh`](../../deepstream/init/ds-start.sh)
-  Verify: `docker logs vss-rt-cv` shows "Starting DeepStream perception pipeline..."
+- [x] ~~**`vss-rt-cv`: get TrafficCamNet model in place.**~~ Resolved during F2 — TRT engine cache persisted to `/data/models/`; first-run compile is ~5min, cached after.
 
-- [ ] **`supabase-storage`: fix `supabase_storage_admin` password.**
-  Storage container restart-looping with `password authentication failed for user "supabase_storage_admin"`. Likely needs an init SQL granting password to that role, or a missing env var the supabase compose expects. Compare against your locally-working supabase-db init.
-  Verify: `docker ps` shows `supabase-storage` as `Up (healthy)`.
+- [x] ~~**`supabase-storage`: fix `supabase_storage_admin` password.**~~ Resolved 2026-05-12 via [`supabase/db/init/99-roles.sql`](../../supabase/db/init/99-roles.sql) — sets passwords for the locked supabase-* roles from `${POSTGRES_PASSWORD}` at first cluster init.
 
 - [ ] **Smoke test end-to-end after the above.**
   Upload a video at `https://aims.synch-solutions.com`, watch detections appear on the timeline. Click into a detail page. Confirm scrubber works.

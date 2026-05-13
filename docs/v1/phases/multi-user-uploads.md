@@ -1,6 +1,6 @@
 # Multi-user uploads + parallel GPU processing
 
-## Status: planned (2026-05-11)
+## Status: A, C, E, F0–F2 shipped (2026-05-13). B, F3, F5, F6 deferred.
 
 Two coupled work streams. Phase A–E enable logical per-user isolation on top of the existing Supabase auth. Phase F lifts the single-GPU-stream bottleneck so concurrent users don't queue behind each other end-to-end.
 

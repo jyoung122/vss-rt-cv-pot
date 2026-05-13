@@ -27,7 +27,7 @@ The indexer has no EOS hook ([`backend/app/event_indexer.py:10-12`](../../backen
 | Stage | Enter when | Exit when | Source |
 |---|---|---|---|
 | 0 upload | `POST /api/upload` starts | HTTP 200 with `video_id` | XHR progress event |
-| 1 ingest | upload response received | `event_count` plateaus for ≥3 polls **or** wall ≥ `duration_s + 5s` | `GET /api/uploads/:id/progress` every 1 s |
+| 1 ingest | upload response received | `event_count` plateaus for ≥3 polls **or** wall ≥ `duration_s + 60s` | `GET /api/uploads/:id/progress` every 1 s |
 | 2 rules | ingest complete | `POST /api/uploads/:id/analyze` returns | one fetch, await response |
 | 3 vlm | analyze response with `incidents_found > 0` and VLM enabled | `vlm_pending = 0` | `GET /api/uploads/:id/progress` every 2 s |
 | 4 done | vlm settled (or skipped) | auto-resets after 1.5 s | already exists |
@@ -45,7 +45,7 @@ The indexer has no EOS hook ([`backend/app/event_indexer.py:10-12`](../../backen
 | `422` | Pipeline completed but found no events — legitimate empty video | Silent done (0 incidents) |
 | `503` | `dss_status != 'completed'` — vss-rt-cv did not finish processing | Error pill: "Detection pipeline unavailable" |
 
-`dss_status` is written to the `uploads` table by the queue worker: `pending` → `processing` (after container restart) → `completed` (plateau reached) or `failed` (hard timeout or exception). A 422 is only returned when `dss_status = 'completed'` — meaning DeepStream ran to completion but the video had no detectable objects.
+`dss_status` is written to the `uploads` table by the queue worker: `pending` → `processing` (after the DS REST `stream/add` succeeds) → `completed` (plateau reached, OR hard cap fired with non-zero events) or `failed` (hard cap fired with zero events — i.e. DS produced nothing — or an exception during teardown). A 422 is only returned when `dss_status = 'completed'` — meaning DeepStream ran to completion but the video had no detectable objects.
 
 ---
 
@@ -53,7 +53,7 @@ The indexer has no EOS hook ([`backend/app/event_indexer.py:10-12`](../../backen
 
 `event_count` is monotonic during indexing. "Plateaued" = same value across **3 consecutive 1-second polls**.
 
-- **Hard cap**: `min(plateau, duration_s + 5s)` so we never spin if the indexer stalls.
+- **Hard cap**: `min(plateau, duration_s + 60s)` so we never spin if the indexer stalls.
 - **Min ingest wait**: `min(15s, duration_s)` before plateau detection arms — prevents premature rule-pack firing on short clips that briefly stall mid-ingest.
 
 ---
@@ -153,7 +153,7 @@ Total ≈ 250 LOC, two new files, mostly frontend.
 | Orchestrator | Frontend (acceptable trade-off: closing tab cancels) |
 | Plateau threshold | 3 consecutive 1-second polls with same `event_count` |
 | Min ingest wait | `min(15s, duration_s)` |
-| Hard cap | `duration_s + 5s` |
+| Hard cap | `duration_s + 60s` |
 | Aggregate endpoint vs FE-stitched | Single `/progress` endpoint (cheaper polling, atomic snapshot) |
 | Error UX | Red "Error" pill, no auto-retry |
 | VLM disabled UX | Greyed pill with `—`, transition straight to done |

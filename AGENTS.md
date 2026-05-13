@@ -16,12 +16,22 @@ backend/            FastAPI + asyncpg + redis. Lifespan starts the event indexer
   app/db.py         asyncpg pool, runs schema.sql at startup
   app/schema.sql    uploads + events + incidents tables (raw SQL, no ORM)
   app/upload.py     ffprobe metadata, INSERT uploads, enqueues via upload_queue
-  app/upload_queue.py   in-process job queue + serial worker. Owns current_video_id,
-                        current_stream_url.txt, and the vss-rt-cv container restart.
-                        Caps depth at UPLOAD_QUEUE_MAX_DEPTH (default 10) → 503.
+  app/upload_queue.py   in-process job queue + semaphore-bounded concurrent fan-out
+                        (MAX_CONCURRENT_STREAMS, default 2). Each _process_job owns
+                        its own plateau watcher and teardown (DS REST remove →
+                        NVStreamer unregister → ffmpeg publisher stop). No more
+                        current_video_id Redis key, no current_stream_url.txt, no
+                        per-job container restart. Cap UPLOAD_QUEUE_MAX_DEPTH=10 → 503.
+  app/rtsp_publisher.py Per-upload ffmpeg subprocess (-re → mediamtx). Polls the
+                        mediamtx HTTP API for path readiness before DS sees the URL.
+  app/deepstream.py     REST client for nvds_rest_server on vss-rt-cv:9000
+                        (/api/v1/stream/{add,remove}, /health/get-dsready-state).
+  app/nvstreamer.py     NVStreamer sensor registration: POST/DELETE /api/v1/sensor.
   app/uploads_list.py   GET/DELETE /api/uploads, GET /api/uploads/:id/events,
                         GET /api/uploads/:id/progress (queue + ingest + VLM aggregate)
-  app/event_indexer.py  XREADGROUP("indexer/indexer-1") → Postgres events
+  app/event_indexer.py  XREADGROUP("indexer/indexer-1") → Postgres events. Routes
+                        each frame by meta["sensorId"] from the msgconv payload
+                        (was: stale Redis singleton current_video_id, pre-F1).
   app/incidents.py      GET /api/uploads/:id/incidents, POST /api/uploads/:id/analyze
                         GET /api/incidents/catalog
   app/incident_worker.py rule pack: vehicle_collision · ped_impact ·
@@ -50,12 +60,18 @@ frontend/           Next.js 15.3 + React 19 + TS, Tailwind v4
   next.config.js                        proxies /api/* and /ws/* to BACKEND_URL
 
 deepstream/         perception-config.txt, ds-start.sh, tracker + msgconv configs
-docker-compose.yml          prod: redis, postgres, nvstreamer, sdr, vss-rt-cv, backend, frontend
+docker-compose.yml          prod: redis, supabase-db, nvstreamer, sdr, mediamtx, vss-rt-cv, backend, frontend
+docker-compose.supabase.yml supabase overlay: db, auth (gotrue), kong, storage, studio, minio, imgproxy
+mediamtx.yml                RTSP relay config; authInternalUsers needs action: api
 docker-compose.dev.yml      dev: redis + postgres + backend only (no GPU)
 docker-compose.observability.yml  optional overlay: Loki + Promtail + Grafana (:3002)
 observability/      loki.yml, promtail.yml, grafana/ (provisioned datasource + dashboards)
 scripts/vm_setup.sh     Brev/Ubuntu bootstrap (docker, NVIDIA toolkit, NGC CLI)
-tools/synthetic_mdx_publisher.py  XADDs realistic mdx-raw frames (no GPU needed)
+tools/synthetic_mdx_publisher.py  XADDs realistic mdx-raw frames (no GPU needed).
+                                  Pass --sensor-id <id> matching an upload row so
+                                  the indexer's sensorId routing puts events on
+                                  the right video. --scenario collision builds a
+                                  scripted two-vehicle approach for rule-pack tests.
 ```
 
 Reference (don't trust as current state): [`FUTURE_STATE_POT_ARCHIVED.md`](FUTURE_STATE_POT_ARCHIVED.md) has DeepStream config notes that are still accurate.
@@ -82,7 +98,7 @@ Reference (don't trust as current state): [`FUTURE_STATE_POT_ARCHIVED.md`](FUTUR
 
 **Other**
 - Auth: Supabase JWT (HS256, `aud=authenticated`). Frontend middleware injects `Authorization: Bearer …` into `/api/*`; backend `require_user` validates. Every upload row is scoped by `user_id` (= JWT `sub`), so users only see their own data. WS `/ws/events` takes `?token=…` (browsers can't set headers on WS upgrade). Legacy rows with NULL `user_id` are invisible to all users — handled separately in Phase E. See [`docs/v1/phases/multi-user-uploads.md`](docs/v1/phases/multi-user-uploads.md).
-- Defaults assume single-tenant single-host (one GPU pipeline, serial processing). Don't generalize prematurely.
+- Single-host, single-GPU. Parallelism is per-DeepStream-source (nvmultiurisrcbin with up to MAX_CONCURRENT_STREAMS=2 active jobs), not per-container. Don't fan out into N DS containers.
 - Repo dir rename to `aims/` is Phase 4. Don't rename docker container names / volumes ahead of that — it'll churn the diff.
 
 ## Run it

@@ -225,7 +225,7 @@ Loki label discipline is intentionally low-cardinality: `service`, `env`, `level
 
 ## Synthetic publisher
 
-`tools/synthetic_mdx_publisher.py` generates realistic detection frames (Car / Person / Bicycle, multi-track lifecycle, motion drift) and XADDs them to `mdx-raw` in the exact 13-part DeepStream object format the indexer expects. It also sets `current_video_id` so the indexer routes frames into the right `uploads` row.
+`tools/synthetic_mdx_publisher.py` generates realistic detection frames (Car / Person / Bicycle, multi-track lifecycle, motion drift) and XADDs them to `mdx-raw` in the exact 13-part DeepStream object format the indexer expects. Each payload carries `sensorId` matching the target `video_id`, so the indexer routes frames into the right `uploads` row (no Redis singleton — post-F1).
 
 `./tools` is mounted read-only into the dev backend at `/app/tools`, so it runs inside the container with no host-side `pip install`:
 
@@ -258,22 +258,27 @@ Browser (Next.js :3000)
     │ /uploads, /uploads/[video_id], theme toggle (light/dark)
     │ shadcn primitives + OpsVision tokens (Synch orange + cool slate ink)
     ▼
-FastAPI backend (:8080)
-    │ POST /api/uploads          → save file, ffprobe meta, INSERT uploads row
-    │                             → SET current_video_id, restart vss-rt-cv
-    │ GET  /api/uploads          → list with track/event counts
-    │ GET  /api/uploads/:id      → single row + counts
+FastAPI backend (:8080)  — all /api/* gated by Supabase JWT (require_user)
+    │ POST /api/uploads          → save file (scoped to user_id=JWT sub), enqueue
+    │ GET  /api/uploads          → list scoped by user_id
+    │ GET  /api/uploads/:id      → single row + counts (404 across tenants)
     │ DEL  /api/uploads/:id      → ON DELETE CASCADE drops events
     │ GET  /api/uploads/:id/events?group=tracks|none
     │ GET  /api/uploads/:id/incidents       (rule-detected incidents for the clip)
     │ POST /api/uploads/:id/analyze         (re-run rule pack, returns incidents_found)
-    │ GET  /api/uploads/:id/playback        (FileResponse from disk)
-    │ WS   /ws/events            (live detections for the dashboard overlay)
+    │ GET  /api/uploads/:id/playback        (FileResponse from disk, ownership-checked)
+    │ WS   /ws/events?token=…    (live detections for the dashboard overlay)
     ▼
-NVStreamer (:30000)              ← bypassed; see "NVStreamer 3.1.0" below
-    │ (file:// URL is written directly to current_stream_url.txt)
+upload_queue (semaphore, MAX_CONCURRENT_STREAMS=2 default)
+    │ per-job:
+    │   1. rtsp_publisher: ffmpeg -re -i <file> -c copy -f rtsp → mediamtx
+    │   2. wait for mediamtx HTTP API sourceReady
+    │   3. nvstreamer: POST /api/v1/sensor/add  (NVStreamer registers)
+    │   4. deepstream: POST /api/v1/stream/add  (DS nvmultiurisrcbin attaches)
+    │   5. plateau watcher (3× identical event counts OR duration_s+60s cap)
+    │   6. teardown: stream/remove → sensor delete → ffmpeg stop
     ▼
-vss-rt-cv / DeepStream (GPU)
+mediamtx (:8554 internal) ──► NVStreamer (:30000) ──► vss-rt-cv / DeepStream (GPU)
     │ metropolis_perception_app -m 7 -r 2
     │ RT-DETR (TrafficCamNet) → IOU tracker → nvmsgconv → nvmsgbroker
     │ XADD mdx-raw → Redis Stream
@@ -283,7 +288,7 @@ Redis (:6379)
     └─ XREADGROUP "indexer/indexer-1" → event_indexer.py
          │ (parses pipe-delimited objects, computes t_seconds via fps lookup)
          ▼
-       Postgres 16 (aims db)
+       Postgres (Supabase overlay: supabase-db)
          │ uploads    (video_id PK, prompt, duration_s, w/h, fps, size, uploaded_at)
          │ events     (BIGSERIAL, video_id FK CASCADE, track_id, frame_id,
          │             t_seconds, class, confidence, bbox_x1..y2)
@@ -384,9 +389,9 @@ docker compose exec vss-rt-cv ls /opt/nvidia/deepstream/deepstream/lib/libnvds_r
 
 If missing, see comments in `deepstream/init/ds-start.sh` for fallback options (Kafka sidecar, file sink).
 
-**NVStreamer 3.1.0 discovery bug (upstream, unresolved).** NVStreamer 3.1.0 fails to populate codec/container metadata for files it serves and rejects them with "Codec format not supported"; the documented `POST /api/v1/file` returns 404 in this build. **Workaround in place:** `/api/uploads` writes `file:///data/videos/<filename>` directly to `current_stream_url.txt` and DeepStream reads via `uridecodebin`. NVStreamer is still up but not in the perception path.
+**NVStreamer 3.1.0 file-streamer adapter is broken (upstream).** The image ships `launch_vst` compiled against libav60 but ~30 FFmpeg runtime libs are stripped; `POST /api/v1/file` fails. **Bypassed:** uploads are wrapped as RTSP by `rtsp_publisher.py` (ffmpeg → mediamtx) and registered with NVStreamer via `POST /api/v1/sensor/add` instead. The RTSP path uses GStreamer DESCRIBE (no libav) and works cleanly. See [`docs/state/log/2026-05-12-nvstreamer-rediagnosis.md`](docs/state/log/2026-05-12-nvstreamer-rediagnosis.md).
 
-**SDR API is partially documented.** If stream registration fails, check `docker compose logs sdr`; expected request body lives in `backend/app/sdr.py`.
+**SDR API is partially documented.** Currently cosmetic in this deployment — `nvds_rest_server` on vss-rt-cv:9000 is the source-add path. SDR container stays up but the backend doesn't drive it.
 
 **Public access (Brev).** `https://ui-blxuttpxb.brevlab.com` (or `https://3000-…`). Cloudflare Access auth happens once, then upload + playback + WebSocket all flow through the same hostname via the Next.js proxy.
 
