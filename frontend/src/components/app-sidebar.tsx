@@ -1,8 +1,9 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { BookOpen, LayoutDashboard, LogOut, Settings, ShieldAlert, Upload, Users, Video, Wand2 } from "lucide-react"
+import { BookOpen, LayoutDashboard, LogOut, Settings, ShieldAlert, Upload, User, Users, Video, Wand2 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 
 import {
@@ -35,6 +36,18 @@ function isActive(pathname: string, href: string) {
 export function AppSidebar() {
   const pathname = usePathname()
   const router = useRouter()
+  const [email, setEmail] = useState<string | null>(null)
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data }) => {
+      setEmail(data.user?.email ?? null)
+    })
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setEmail(session?.user?.email ?? null)
+    })
+    return () => sub.subscription.unsubscribe()
+  }, [])
 
   return (
     <Sidebar collapsible="icon" data-tour="sidebar">
@@ -144,6 +157,15 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        {email && (
+          <div
+            className="mx-2 mb-2 flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-[11px] group-data-[collapsible=icon]:hidden"
+            title={`Signed in as ${email}`}
+          >
+            <User className="size-3 text-[var(--accent-500)] shrink-0" />
+            <span className="truncate text-[var(--fg-2)]">{email}</span>
+          </div>
+        )}
         <div className="mx-2 mb-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-2 group-data-[collapsible=icon]:hidden">
           <div className="flex items-center justify-between text-[11px]">
             <span className="text-muted-foreground">Cameras online</span>

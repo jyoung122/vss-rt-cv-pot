@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -10,6 +10,9 @@ import { createClient } from "@/lib/supabase/client"
 
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const expired = searchParams.get("expired") === "1"
+  const next = searchParams.get("next") || "/"
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [err, setErr] = useState<string | null>(null)
@@ -30,7 +33,7 @@ export default function LoginPage() {
       return
     }
 
-    router.push("/")
+    router.push(next)
     router.refresh()
   }
 
@@ -44,6 +47,11 @@ export default function LoginPage() {
           <CardTitle className="text-center text-[var(--fg-1)]">Sign in</CardTitle>
         </CardHeader>
         <CardContent>
+          {expired && (
+            <div className="mb-4 rounded-[var(--radius-sm)] border border-[var(--warn-500)]/40 bg-[var(--warn-500)]/10 px-3 py-2 text-sm text-[var(--warn-500)]">
+              Session expired — please sign in again.
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <Input
               type="email"

@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { apiFetch } from '@/lib/api-fetch'
 
 export type UploadStage = 'idle' | 'queued' | 'upload' | 'ingest' | 'rules' | 'vlm' | 'done' | 'error'
 
@@ -88,7 +89,7 @@ export function useUploadProgress(): UploadProgressState & UploadProgressActions
     try {
       const ctrl = new AbortController()
       abortRef.current = ctrl
-      const res = await fetch(`/api/uploads/${videoId}/analyze`, {
+      const res = await apiFetch(`/api/uploads/${videoId}/analyze`, {
         method: 'POST',
         signal: ctrl.signal,
       })
@@ -126,7 +127,7 @@ export function useUploadProgress(): UploadProgressState & UploadProgressActions
     try {
       const ctrl = new AbortController()
       abortRef.current = ctrl
-      const res = await fetch(`/api/uploads/${videoId}/progress`, {
+      const res = await apiFetch(`/api/uploads/${videoId}/progress`, {
         cache: 'no-store',
         signal: ctrl.signal,
       })
@@ -178,7 +179,7 @@ export function useUploadProgress(): UploadProgressState & UploadProgressActions
     try {
       const ctrl = new AbortController()
       abortRef.current = ctrl
-      const res = await fetch(`/api/uploads/${videoId}/progress`, {
+      const res = await apiFetch(`/api/uploads/${videoId}/progress`, {
         cache: 'no-store',
         signal: ctrl.signal,
       })
@@ -227,7 +228,7 @@ export function useUploadProgress(): UploadProgressState & UploadProgressActions
     try {
       const ctrl = new AbortController()
       abortRef.current = ctrl
-      const res = await fetch(`/api/uploads/${videoId}/progress`, {
+      const res = await apiFetch(`/api/uploads/${videoId}/progress`, {
         cache: 'no-store',
         signal: ctrl.signal,
       })
