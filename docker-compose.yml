@@ -185,7 +185,7 @@ services:
 
   cosmos:
     profiles: [gpu]
-    image: nvcr.io/nim/nvidia/cosmos-reason2-2b:latest
+    image: nvcr.io/nim/nvidia/cosmos-reason2-8b:1.7.0
     container_name: aims-cosmos
     ports:
       - "8000:8000"
