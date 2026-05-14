@@ -212,12 +212,16 @@ services:
     networks:
       - vss-net
     command:
+      # No --quantization fp8: L4 (sm_89) lacks vLLM-recognised native FP8,
+      # so vLLM falls back to weight-only Marlin which requires dims % 64 == 0.
+      # Cosmos-Reason2-8B has a 4304-wide layer (4304 % 64 = 16) → load fails
+      # ("size_n = 4304 is not divisible by tile_n_size = 64"). Run BF16
+      # instead — fits L4 24GB alongside DS at gpu-memory-utilization 0.78
+      # (~18.7GB cap; weights ~16GB + KV ~2GB).
       - --model
       - nvidia/Cosmos-Reason2-8B
-      - --quantization
-      - fp8
       - --gpu-memory-utilization
-      - "0.55"
+      - "0.78"
       - --max-model-len
       - "8192"
       - --max-num-seqs
